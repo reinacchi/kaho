@@ -17,16 +17,24 @@ pub struct Message {
     /// The ID of the message.
     #[serde(rename = "_id")]
     pub id: Id,
+    /// Optional nonce supplied when the message was created.
     pub nonuce: Option<String>,
+    /// ID of the channel containing the message.
     pub channel: Id,
+    /// ID of the user that authored the message.
     pub author: String,
+    /// Text content of the message.
     pub content: String,
+    /// Attachments included with the message.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// Embeds included with the message.
     #[serde(default)]
     pub embeds: Option<Vec<Embed>>,
+    /// User IDs mentioned by the message.
     #[serde(default)]
     pub mentions: Vec<Id>,
+    /// Message IDs replied to by this message.
     #[serde(default)]
     pub replies: Vec<Id>,
 }
@@ -56,17 +64,24 @@ impl Message {
 /// Represents a request to create a new message.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct MessageSend {
+    /// Text content of the outgoing message.
     pub content: String,
+    /// Attachment IDs to include.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Id>,
+    /// Embeds to include.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub embeds: Vec<EmbedCreate>,
+    /// Optional message flags.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<MessageFlags>,
+    /// Allowed message interactions.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub interactions: Vec<MessageInteractions>,
+    /// Optional display masquerade.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masquerade: Option<MessageMasquerade>,
+    /// Messages this message replies to.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<MessageReplyIntent>,
 }
@@ -81,24 +96,34 @@ bitflags! {
     }
 }
 
-// Message display masquerade information.
+/// Message display masquerade information.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MessageMasquerade {
+    /// Avatar URL to display for the masquerade.
     pub avatar: Option<String>,
+    /// Display colour for the masquerade.
     pub colour: Option<String>,
+    /// Display name for the masquerade.
     pub name: String,
 }
 
+/// Describes a message reply target.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageReplyIntent {
+    /// Whether sending should fail when the replied-to message does not exist.
     pub fail_if_not_exists: bool,
+    /// ID of the message being replied to.
     pub id: Id,
+    /// Whether the reply should mention the original author.
     pub mention: bool,
 }
 
+/// Controls allowed interactions for a message.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageInteractions {
+    /// Reaction IDs allowed on the message.
     pub reactions: Vec<Id>,
+    /// Whether reactions are restricted to the listed IDs.
     pub restrict_reactions: bool,
 }
 
@@ -119,8 +144,10 @@ impl<T: Into<String>> From<T> for MessageSend {
 /// Represents a request to edit an existing message.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct MessageEdit {
+    /// Replacement message content.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Replacement embeds.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub embeds: Vec<EmbedCreate>,
 }

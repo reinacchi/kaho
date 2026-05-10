@@ -1,3 +1,4 @@
+/// Stoat API endpoint variants used to construct request paths.
 #[derive(Debug, Clone)]
 pub enum Endpoint {
     // Bot-related

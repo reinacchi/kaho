@@ -44,39 +44,58 @@ impl Cache {
         }
     }
 
+    /// Insert or replace a user in the cache.
+    ///
+    /// Returns the previously cached user with the same ID, if one existed.
     pub async fn insert_user(&self, user: User) -> Option<User> {
         self.inner.write().await.users.insert(user.id.clone(), user)
     }
 
+    /// Fetch a cached user by ID.
+    ///
+    /// Returns a cloned user so callers do not hold the cache read lock.
     pub async fn user(&self, id: impl AsRef<str>) -> Option<User> {
         self.inner.read().await.users.get(id.as_ref()).cloned()
     }
 
+    /// Insert or replace a server in the cache.
+    ///
+    /// Returns the previously cached server with the same ID, if one existed.
     pub async fn insert_server(&self, server: Server) -> Option<Server> {
         self.inner.write().await.servers.insert(server.id.clone(), server)
     }
 
+    /// Fetch a cached server by ID.
     pub async fn server(&self, id: impl AsRef<str>) -> Option<Server> {
         self.inner.read().await.servers.get(id.as_ref()).cloned()
     }
 
+    /// Insert or replace a channel in the cache.
+    ///
+    /// Returns the previously cached channel with the same ID, if one existed.
     pub async fn insert_channel(&self, channel: Channel) -> Option<Channel> {
         let id = channel.id().to_owned();
         self.inner.write().await.channels.insert(id, channel)
     }
 
+    /// Fetch a cached channel by ID.
     pub async fn channel(&self, id: impl AsRef<str>) -> Option<Channel> {
         self.inner.read().await.channels.get(id.as_ref()).cloned()
     }
 
+    /// Insert or replace a message in the cache.
+    ///
+    /// Returns the previously cached message with the same ID, if one existed.
     pub async fn insert_message(&self, message: Message) -> Option<Message> {
         self.inner.write().await.messages.insert(message.id.clone(), message)
     }
 
+    /// Fetch a cached message by ID.
     pub async fn message(&self, id: impl AsRef<str>) -> Option<Message> {
         self.inner.read().await.messages.get(id.as_ref()).cloned()
     }
 
+    /// Remove every cached entity.
     pub async fn clear(&self) {
         *self.inner.write().await = CacheInner::default();
     }

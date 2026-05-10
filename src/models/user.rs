@@ -22,10 +22,12 @@ pub struct User {
     #[serde(default)]
     pub discriminator: String,
     /// The display name of the user.
+    /// Replacement display name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     /// The status of the user.
     pub status: Option<UserStatus>,
+    /// Relationships associated with the user.
     #[serde(default)]
     pub relations: Vec<UserRelationship>,
     /// Whether the user is online or not.
@@ -46,20 +48,29 @@ impl User {
     }
 }
 
+/// User status text and presence.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserStatus {
+    /// Custom status text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Current presence string.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence: Option<String>,
 }
 
+/// Known user presence states.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum Presence {
+    /// The user is online.
     Online,
+    /// The user is invisible.
     Invisible,
+    /// The user is focusing.
     Focus,
+    /// The user is idle.
     Idle,
+    /// The user is busy.
     Busy,
 }
 
@@ -77,54 +88,78 @@ impl fmt::Display for Presence {
     }
 }
 
+/// Payload for updating a user.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct UserUpdate {
+    /// Replacement user status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<UserStatus>,
+    /// Replacement profile data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<UserProfileUpdate>,
+    /// Replacement avatar attachment ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
+    /// Replacement display name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// User field to remove.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove: Option<UserFields>,
+    /// Replacement badge bitfield.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub badges: Option<u32>,
+    /// Replacement user flag bitfield.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<u32>,
 }
 
+/// Payload for updating a user profile.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct UserProfileUpdate {
+    /// Replacement profile content.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Replacement profile background attachment ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<Id>,
 }
 
+/// Relationship state between the current user and another user.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserRelationship {
+    /// ID of the related user.
     #[serde(rename = "_id")]
     #[serde(default)]
     pub id: Id,
+    /// Relationship status with that user.
     #[serde(default)]
     pub status: RelationshipStatus,
 }
 
+/// Relationship state with another user.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub enum RelationshipStatus {
+    /// No relationship.
     #[default]
     None,
+    /// Regular user relationship.
     User,
+    /// Friend relationship.
     Friend,
+    /// Outgoing friend request.
     Outgoing,
+    /// Incoming friend request.
     Incoming,
+    /// The user is blocked.
     Blocked,
+    /// The user has blocked the current user.
     BlockedOther,
 }
 
+/// Helper trait for checking relationship status in a relationship list.
 pub trait CheckRelationship {
+    /// Return the relationship status for `user`.
     fn with(&self, user: &str) -> RelationshipStatus;
 }
 
@@ -140,17 +175,25 @@ impl CheckRelationship for Vec<UserRelationship> {
     }
 }
 
+/// User fields that can be removed or edited by update payloads.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum UserFields {
+    /// User avatar.
     Avatar,
+    /// Status text.
     StatusText,
+    /// Status presence.
     StatusPresence,
+    /// Profile content.
     ProfileContent,
+    /// Profile background.
     ProfileBackground,
+    /// Display name.
     DisplayName,
 }
 
 bitflags! {
+    /// Badge flags attached to a user.
     #[derive(Clone, Debug, PartialEq, Deserialize, Default)]
     #[serde(transparent)]
     pub struct UserBadges: u32 {
@@ -169,6 +212,7 @@ bitflags! {
 }
 
 bitflags! {
+    /// Account flags attached to a user.
     #[derive(Clone, Debug, PartialEq, Deserialize, Default)]
     #[serde(transparent)]
     pub struct UserFlags: u32 {
@@ -179,20 +223,29 @@ bitflags! {
     }
 }
 
+/// Response containing a user flag bitfield.
 #[derive(Clone, Debug, Deserialize)]
 pub struct FlagResponse {
+    /// Raw user flags returned by the API.
     pub flags: i32,
 }
 
+/// Mutual users and servers shared with another user.
 pub struct MutualResponse {
+    /// Mutual user IDs.
     pub users: Vec<String>,
+    /// Mutual server IDs.
     pub servers: Vec<String>,
 }
 
+/// Public bot ownership information.
 pub struct BotInformation {
+    /// ID of the bot owner.
     pub owner: String,
 }
 
+/// Request payload for sending a friend request.
 pub struct SendFriendRequest {
+    /// Username to send a friend request to.
     pub username: String,
 }

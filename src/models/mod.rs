@@ -22,4 +22,5 @@ mod permission;
 mod server;
 mod user;
 
+/// Unique Stoat object identifier.
 pub type Id = String;

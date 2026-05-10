@@ -13,6 +13,7 @@ use crate::{
     models::{ClientEvent, GatewayEvent},
 };
 
+/// Stream-like receiver for gateway events.
 #[derive(Debug, Clone)]
 pub struct GatewayEventStream {
     receiver: Receiver<KahoResult<GatewayEvent>>,
@@ -28,18 +29,23 @@ impl GatewayEventStream {
     }
 }
 
+/// WebSocket gateway client responsible for sending and receiving gateway events.
 #[derive(Debug, Clone)]
 pub struct GatewayClient {
+    /// Gateway connection configuration.
     pub config: GatewayConfig,
+    /// Timestamps for the most recent heartbeat ping and pong.
     pub last_heartbeat: (Instant, Instant),
     client_sender: Sender<ClientEvent>,
     client_receiver: Receiver<ClientEvent>,
     server_sender: Sender<Result<GatewayEvent, KahoError>>,
     server_receiver: Receiver<Result<GatewayEvent, KahoError>>,
+    /// Whether the client believes it has started a gateway connection loop.
     pub is_connected: bool,
 }
 
 impl GatewayClient {
+    /// Create a gateway client from an existing configuration.
     pub fn new(config: GatewayConfig) -> Self {
         let (client_sender, client_receiver) = async_channel::unbounded();
         let (server_sender, server_receiver) = async_channel::unbounded();
@@ -55,6 +61,7 @@ impl GatewayClient {
         }
     }
 
+    /// Start the gateway connection and reconnect loop.
     pub async fn connect(&mut self) -> KahoResult<()> {
         if self.is_connected {
             return Ok(());
@@ -207,6 +214,7 @@ impl GatewayClient {
         }
     }
 
+    /// Queue a client event to be sent over the gateway connection.
     pub async fn send(&self, event: ClientEvent) -> KahoResult<()> {
         self.client_sender
             .send(event)
@@ -224,6 +232,7 @@ impl GatewayClient {
         }
     }
 
+    /// Return the current heartbeat latency estimate.
     pub fn latency(&self) -> Duration {
         let (last_ping, last_pong) = self.last_heartbeat;
         if last_pong >= last_ping {
@@ -256,7 +265,6 @@ fn handle_websocket_error(err: WsError) -> KahoError {
         _ => KahoError::WebSocket(err),
     }
 }
-
 
 #[cfg(not(feature = "msgpack"))]
 fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {

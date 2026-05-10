@@ -5,26 +5,37 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum Embed {
+    /// Website metadata embed.
     Website(WebsiteMetadata),
+    /// Image embed.
     Image(Image),
+    /// Video embed.
     Video(Video),
+    /// Text embed.
     Text(Text),
+    /// Empty embed placeholder.
     None,
 }
 
 /// Represents a request to create an embed in a message.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EmbedCreate {
+    /// Icon URL displayed with the embed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_url: Option<String>,
+    /// URL attached to the embed title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Embed title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Embed description.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Attachment ID or media reference for the embed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
+    /// Embed accent colour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
 }
@@ -104,30 +115,43 @@ pub enum Special {
 
     /// YouTube video
     YouTube {
+        /// YouTube video ID.
         id: String,
+        /// Optional playback timestamp.
         timestamp: Option<String>,
     },
 
     /// Lightspeed.tv stream
     Lightspeed {
+        /// Lightspeed content type.
         content_type: LightspeedType,
+        /// Lightspeed content ID.
         id: String,
     },
 
     /// Twitch stream or clip
     Twitch {
+        /// Twitch content type.
         content_type: TwitchType,
+        /// Twitch content ID.
         id: String,
     },
     /// Spotify track
-    Spotify { content_type: String, id: String },
+    Spotify {
+        /// Spotify content type.
+        content_type: String,
+        /// Spotify content ID.
+        id: String,
+    },
 
     /// Soundcloud track
     Soundcloud,
 
     /// Bandcamp track
     Bandcamp {
+        /// Bandcamp content type.
         content_type: BandcampType,
+        /// Bandcamp content ID.
         id: String,
     },
 }
@@ -135,21 +159,27 @@ pub enum Special {
 /// Type of remote Twitch content
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum TwitchType {
+    /// Twitch channel.
     Channel,
+    /// Twitch video.
     Video,
+    /// Twitch clip.
     Clip,
 }
 
 /// Type of remote Lightspeed.tv content
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum LightspeedType {
+    /// Lightspeed channel.
     Channel,
 }
 
 /// Type of remote Bandcamp content
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum BandcampType {
+    /// Bandcamp album.
     Album,
+    /// Bandcamp track.
     Track,
 }
 

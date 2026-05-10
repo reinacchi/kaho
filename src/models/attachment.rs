@@ -24,10 +24,15 @@ pub struct Attachment {
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AttachmentTag {
+    /// Message attachments.
     Attachments,
+    /// User avatars.
     Avatars,
+    /// Profile or server banners.
     Banners,
+    /// Profile backgrounds.
     Backgrounds,
+    /// Server or channel icons.
     Icons,
 }
 

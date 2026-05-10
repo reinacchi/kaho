@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+/// HTTP client for calling the Stoat REST API.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
@@ -22,6 +23,7 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
+    /// Create an HTTP client from configuration.
     pub fn new(config: HttpConfig) -> KahoResult<Self> {
         let mut headers = HeaderMap::new();
         headers.insert("X-Bot-Token", HeaderValue::from_str(&config.token)?);
@@ -39,6 +41,7 @@ impl HttpClient {
         )
     }
 
+    /// Send a GET request and deserialize the JSON response.
     pub async fn get<T: DeserializeOwned>(&self, path: impl AsRef<str>) -> KahoResult<T> {
         let response = self.client.get(self.make_url(path)).send().await?;
 
@@ -51,6 +54,7 @@ impl HttpClient {
         Ok(payload)
     }
 
+    /// Send a POST request with a JSON payload and deserialize the JSON response.
     pub async fn post<T: DeserializeOwned, U: Serialize>(
         &self,
         path: impl AsRef<str>,
@@ -72,6 +76,7 @@ impl HttpClient {
         Ok(payload)
     }
 
+    /// Send a PUT request with a JSON payload.
     pub async fn put<T: Serialize>(&self, path: impl AsRef<str>, payload: T) -> KahoResult {
         let response = self
             .client
@@ -87,6 +92,7 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Send a PATCH request with a JSON payload and deserialize the JSON response.
     pub async fn patch<T: Serialize, R: DeserializeOwned>(
         &self,
         path: impl AsRef<str>,
@@ -108,6 +114,7 @@ impl HttpClient {
         Ok(payload)
     }
 
+    /// Send a DELETE request.
     pub async fn delete(&self, path: impl AsRef<str>) -> KahoResult {
         let response = self.client.delete(self.make_url(path)).send().await?;
 

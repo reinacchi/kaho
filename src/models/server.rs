@@ -33,16 +33,22 @@ pub struct Role {
 /// Represents the fields that can be included in a role object.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RoleFields {
+    /// Role colour.
     Colour,
 }
 
 /// Represents the fields that can be included in a server object.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ServerFields {
+    /// Server banner.
     Banner,
+    /// Server categories.
     Categories,
+    /// Server description.
     Description,
+    /// Server icon.
     Icon,
+    /// System message channel settings.
     SystemMessages,
 }
 
@@ -87,6 +93,7 @@ bitflags! {
     }
 }
 
+/// Represents a Stoat server.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Server {
     /// Whether the server has analytics enabled.
@@ -144,7 +151,7 @@ pub struct Server {
     pub system_messages: Option<SystemMessageChannels>,
 }
 
-///
+/// Represents a server ban.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ServerBan {
     /// The ID of the user who is banned.
@@ -159,10 +166,13 @@ pub struct ServerBan {
 /// Represents a request to create a new server.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ServerCreate {
+    /// Optional server description.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Optional server name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Whether the server should be marked as NSFW.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
 }
@@ -170,24 +180,34 @@ pub struct ServerCreate {
 /// Represents a request to edit an existing server.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ServerEdit {
+    /// Whether analytics should be enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<bool>,
+    /// Replacement server banner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub banner: Option<Attachment>,
+    /// Replacement server categories.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub categories: Option<Vec<Category>>,
+    /// Replacement server description.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether the server is discoverable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
+    /// Replacement server flags.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<ServerFlags>,
+    /// Replacement server icon.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
+    /// Replacement server name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Field to remove from the server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove: Option<ServerFields>,
+    /// Replacement system message channels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_messages: Option<SystemMessageChannels>,
 }

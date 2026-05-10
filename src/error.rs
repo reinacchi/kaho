@@ -6,6 +6,7 @@ use {
     tokio_tungstenite::tungstenite::Error as WebSocketError,
 };
 
+/// Convenience result type used by Kaho operations.
 pub type KahoResult<T = (), E = KahoError> = StdResult<T, E>;
 
 /// Top-level error type for all operations within the `kaho` crate.
@@ -51,6 +52,7 @@ pub enum AuthError {
     #[error("Invalid session token")]
     InvalidSession,
 
+    /// The account has not completed onboarding.
     #[error("Invalid username")]
     OnboardingNotFinished,
 
