@@ -2,7 +2,7 @@
 
 <p align="center"><img src="logo.png" alt="VoidChan Logo" width="200"/></p>
 
-<p align="center">A Rust Stoat Library</p>
+<p align="center">A <b>Rust-based</b> library for interacting with Stoat.</p>
 
 > [!WARNING]
 > This library is heavily under development. Bugs are expected.
@@ -91,7 +91,6 @@ async fn main() -> KahoResult<()> {
 ## Useful Links
 
 - [The official Kaho Stoat server](https://stt.gg/g65YG8CA) - A place where you can receive support and updates.
-- [The website](https://kaho.2rkf.me) - The official website and documentation for Kaho.
 
 ## License
 
