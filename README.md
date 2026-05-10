@@ -4,6 +4,10 @@
 
 <p align="center">A <b>Rust-based</b> library for interacting with Stoat.</p>
 
+<p align="center">
+<a href="https://kaho.2rkf.fun/docs/getting-started" target="_blank">Getting Started</a> · <a href="https://kaho.2rkf.fun/docs/examples" target="_blank">Examples</a> · <a href="https://stt.gg/g65YG8CA" target="_blank">Stoat</a>
+</p>
+
 > [!WARNING]
 > This library is heavily under development. Bugs are expected.
 
@@ -87,10 +91,6 @@ async fn main() -> KahoResult<()> {
     Ok(())
 }
 ```
-
-## Useful Links
-
-- [The official Kaho Stoat server](https://stt.gg/g65YG8CA) - A place where you can receive support and updates.
 
 ## License
 
