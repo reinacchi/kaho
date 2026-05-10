@@ -54,6 +54,15 @@ pub struct ChannelUpdate {
     pub remove: Option<ChannelFields>,
 }
 
+impl Channel {
+    /// Return the channel ID, independent of the channel variant.
+    pub fn id(&self) -> &str {
+        match self {
+            Channel::DirectMessage(channel) => &channel.id,
+        }
+    }
+}
+
 /// Represents a direct message channel between two users.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct DirectMessageChannel {

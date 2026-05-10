@@ -25,7 +25,7 @@ impl TypeStore {
     /// Retrieves a cloned value of type `T` from the store.
     pub async fn fetch<T>(&self) -> Option<T>
     where
-        T: Clone + 'static,
+        T: Clone + Send + Sync + 'static,
     {
         self.0
             .read()
@@ -50,7 +50,7 @@ impl TypeStore {
     /// Applies an update function to a mutable reference of the stored value of type `T`.
     pub async fn update<T>(&self, updater: impl FnOnce(&mut T))
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         if let Some(item) = self
             .0
@@ -66,7 +66,7 @@ impl TypeStore {
     /// Returns `true` if a value of type `T` exists in the store.
     pub async fn contains<T>(&self) -> bool
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         self.0.read().await.contains_key(&TypeId::of::<T>())
     }
@@ -74,7 +74,7 @@ impl TypeStore {
     /// Removes the value of type `T` from the store, if present.
     pub async fn remove<T>(&self) -> Option<T>
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         self.0
             .write()

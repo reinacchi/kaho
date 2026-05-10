@@ -5,8 +5,10 @@ pub mod client;
 pub mod gateway;
 pub mod http;
 
-#[cfg(feature = "cache")]
 pub mod models;
+
+#[cfg(feature = "cache")]
+pub mod cache;
 
 #[cfg(feature = "type-store")]
 pub mod type_store;

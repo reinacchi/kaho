@@ -30,7 +30,7 @@ impl GatewayEventStream {
 
 #[derive(Debug, Clone)]
 pub struct GatewayClient {
-    config: GatewayConfig,
+    pub config: GatewayConfig,
     pub last_heartbeat: (Instant, Instant),
     client_sender: Sender<ClientEvent>,
     client_receiver: Receiver<ClientEvent>,
@@ -142,12 +142,10 @@ impl GatewayClient {
                 pin_mut!(client_receiver);
 
                 while let Some(event) = client_receiver.next().await {
-                    let msg = match serde_json::to_string(&event) {
-                        Ok(json) => Message::Text(json.into()),
+                    let msg = match serialize_client_event(&event) {
+                        Ok(msg) => msg,
                         Err(e) => {
-                            let _ = server_sender
-                                .send(Err(KahoError::Other(format!("Serialization error: {}", e))))
-                                .await;
+                            let _ = server_sender.send(Err(e)).await;
                             continue;
                         }
                     };
@@ -168,14 +166,15 @@ impl GatewayClient {
                 while let Some(msg) = read_stream.next().await {
                     let event = match msg {
                         Ok(msg) => match msg {
-                            Message::Text(text) => {
-                                match serde_json::from_str::<GatewayEvent>(&text) {
-                                    Ok(GatewayEvent::Pong) => continue,
-                                    Ok(event) => Ok(event),
-                                    Err(e) => Err(KahoError::Other(format!(
-                                        "Deserialization error: {}",
-                                        e
-                                    ))),
+                            Message::Text(text) => deserialize_gateway_event_text(&text),
+                            Message::Binary(_bytes) => {
+                                #[cfg(feature = "msgpack")]
+                                {
+                                    deserialize_gateway_event_binary(&_bytes)
+                                }
+                                #[cfg(not(feature = "msgpack"))]
+                                {
+                                    continue;
                                 }
                             }
                             Message::Close(_) => {
@@ -185,6 +184,10 @@ impl GatewayClient {
                         },
                         Err(e) => Err(handle_websocket_error(e).into()),
                     };
+
+                    if matches!(event, Ok(GatewayEvent::Pong)) {
+                        continue;
+                    }
 
                     if server_sender.send(event).await.is_err() {
                         break;
@@ -251,5 +254,37 @@ fn handle_websocket_error(err: WsError) -> KahoError {
             KahoError::Other("Connection forcibly closed by remote host".to_string())
         }
         _ => KahoError::WebSocket(err),
+    }
+}
+
+
+#[cfg(not(feature = "msgpack"))]
+fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
+    serde_json::to_string(event)
+        .map(|json| Message::Text(json.into()))
+        .map_err(|e| KahoError::Other(format!("Serialization error: {}", e)))
+}
+
+#[cfg(feature = "msgpack")]
+fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
+    rmp_serde::to_vec_named(event)
+        .map(|bytes| Message::Binary(bytes.into()))
+        .map_err(|e| KahoError::Other(format!("MessagePack serialization error: {}", e)))
+}
+
+fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
+    match serde_json::from_str::<GatewayEvent>(text) {
+        Ok(GatewayEvent::Pong) => Ok(GatewayEvent::Pong),
+        Ok(event) => Ok(event),
+        Err(e) => Err(KahoError::Other(format!("Deserialization error: {}", e))),
+    }
+}
+
+#[cfg(feature = "msgpack")]
+fn deserialize_gateway_event_binary(bytes: &[u8]) -> KahoResult<GatewayEvent> {
+    match rmp_serde::from_slice::<GatewayEvent>(bytes) {
+        Ok(GatewayEvent::Pong) => Ok(GatewayEvent::Pong),
+        Ok(event) => Ok(event),
+        Err(e) => Err(KahoError::Other(format!("MessagePack deserialization error: {}", e))),
     }
 }
