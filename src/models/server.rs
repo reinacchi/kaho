@@ -11,7 +11,7 @@ use crate::models::{
 /// Represents a role in a server, which defines permissions and attributes for members.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Role {
-    /// The color associated with the role.
+    /// The colour associated with the role.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
 
