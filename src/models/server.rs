@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use crate::models::{
     attachment::Attachment,
@@ -160,34 +160,34 @@ pub struct ServerBan {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ServerCreate {
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nsfw: Option<bool>,
+    pub nsfw: Option<bool>,
 }
 
 /// Represents a request to edit an existing server.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ServerEdit {
     #[serde(skip_serializing_if = "Option::is_none")]
-    analyrics: Option<bool>,
+    pub analytics: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    banner: Option<Attachment>,
+    pub banner: Option<Attachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    categories: Option<Vec<Category>>,
+    pub categories: Option<Vec<Category>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    discoverable: Option<bool>,
+    pub discoverable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    flags: Option<ServerFlags>,
+    pub flags: Option<ServerFlags>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    icon: Option<Attachment>,
+    pub icon: Option<Attachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    remove: Option<ServerFields>,
+    pub remove: Option<ServerFields>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    system_messages: Option<SystemMessageChannels>,
+    pub system_messages: Option<SystemMessageChannels>,
 }

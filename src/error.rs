@@ -1,5 +1,5 @@
 use {
-    reqwest::{Error as ReqwestError, Response},
+    reqwest::{header::InvalidHeaderValue, Error as ReqwestError, Response},
     serde::Deserialize,
     std::result::Result as StdResult,
     thiserror::Error,
@@ -14,6 +14,10 @@ pub enum KahoError {
     /// Network or HTTP-related error via `reqwest`.
     #[error("HTTP error: {0}")]
     Http(#[from] ReqwestError),
+
+    /// Header value could not be represented as a valid HTTP header.
+    #[error("Invalid HTTP header value: {0}")]
+    InvalidHeader(#[from] InvalidHeaderValue),
 
     /// Received a response with a non-success status code.
     #[error("Request failed with non-success status: {0:?}")]

@@ -22,20 +22,20 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    pub fn new(config: HttpConfig) -> Self {
+    pub fn new(config: HttpConfig) -> KahoResult<Self> {
         let mut headers = HeaderMap::new();
-        headers.insert("X-Bot-Token", HeaderValue::from_str(&config.token).unwrap());
+        headers.insert("X-Bot-Token", HeaderValue::from_str(&config.token)?);
 
-        let client = Client::builder().default_headers(headers).build().unwrap();
+        let client = Client::builder().default_headers(headers).build()?;
 
-        Self { client, config }
+        Ok(Self { client, config })
     }
 
     fn make_url(&self, path: impl AsRef<str>) -> String {
         format!(
             "{}/{}",
             self.config.api_url.trim_end_matches('/'),
-            path.as_ref()
+            path.as_ref().trim_start_matches('/')
         )
     }
 

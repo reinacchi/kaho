@@ -1,7 +1,12 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-use crate::{http::HttpClient, models::{Attachment, Id}, KahoResult};
+use crate::{
+    http::HttpClient,
+    models::{Attachment, Id},
+    KahoResult,
+};
 
 /// Represents a user.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -58,15 +63,17 @@ pub enum Presence {
     Busy,
 }
 
-impl Presence {
-    pub fn to_string(&self) -> String {
-        match self {
-            Presence::Online => "Online".to_string(),
-            Presence::Invisible => "Invisible".to_string(),
-            Presence::Focus => "Focus".to_string(),
-            Presence::Idle => "Idle".to_string(),
-            Presence::Busy => "Busy".to_string(),
-        }
+impl fmt::Display for Presence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            Presence::Online => "Online",
+            Presence::Invisible => "Invisible",
+            Presence::Focus => "Focus",
+            Presence::Idle => "Idle",
+            Presence::Busy => "Busy",
+        };
+
+        formatter.write_str(value)
     }
 }
 

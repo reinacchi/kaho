@@ -31,10 +31,16 @@ pub struct KahoClientBuilder {
     token: Option<String>,
 }
 
+impl Default for KahoClientBuilder {
+    fn default() -> Self {
+        Self { token: None }
+    }
+}
+
 impl KahoClientBuilder {
     /// Create a new builder.
     pub fn new() -> Self {
-        KahoClientBuilder { token: None }
+        Self::default()
     }
 
     /// The bot token.
@@ -53,7 +59,7 @@ impl KahoClientBuilder {
         let gateway_config = GatewayConfig::new(&token)?;
 
         Ok(KahoClient {
-            http: HttpClient::new(http_config),
+            http: HttpClient::new(http_config)?,
             gateway: GatewayClient::new(gateway_config),
         })
     }

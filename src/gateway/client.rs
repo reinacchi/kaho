@@ -68,22 +68,34 @@ impl GatewayClient {
                         client.config.reconnect_attempts = 0;
                     }
                     Err(e) => {
-                        let _ = client
-                            .server_sender
-                            .send(Err(KahoError::Other(format!(
-                                "Connection failed. {}, retrying in {}s",
-                                e,
-                                client.config.reconnect_delay.as_secs()
-                                    * client.config.reconnect_attempts as u64
-                            ))))
-                            .await;
                         client.is_connected = false;
                         client.config.reconnect_attempts += 1;
+
+                        if client.config.reconnect_attempts > client.config.max_reconnect_attempts {
+                            let _ = client
+                                .server_sender
+                                .send(Err(KahoError::Other(format!(
+                                    "Connection failed after {} reconnect attempts: {}",
+                                    client.config.max_reconnect_attempts, e
+                                ))))
+                                .await;
+                            break;
+                        }
 
                         let delay = std::cmp::min(
                             client.config.reconnect_delay * client.config.reconnect_attempts as u32,
                             Duration::from_secs(60),
                         );
+
+                        let _ = client
+                            .server_sender
+                            .send(Err(KahoError::Other(format!(
+                                "Connection failed: {}; retrying in {}s",
+                                e,
+                                delay.as_secs()
+                            ))))
+                            .await;
+
                         sleep(delay).await;
                     }
                 }
@@ -134,10 +146,7 @@ impl GatewayClient {
                         Ok(json) => Message::Text(json.into()),
                         Err(e) => {
                             let _ = server_sender
-                                .send(Err(KahoError::Other(format!(
-                                    "Serialization error: {}",
-                                    e
-                                ))))
+                                .send(Err(KahoError::Other(format!("Serialization error: {}", e))))
                                 .await;
                             continue;
                         }
@@ -212,13 +221,12 @@ impl GatewayClient {
         }
     }
 
-
     pub fn latency(&self) -> Duration {
         let (last_ping, last_pong) = self.last_heartbeat;
-        if last_ping > last_pong {
-            last_ping - last_pong
+        if last_pong >= last_ping {
+            last_pong.duration_since(last_ping)
         } else {
-            last_pong - last_pong
+            last_ping.duration_since(last_pong)
         }
     }
 
