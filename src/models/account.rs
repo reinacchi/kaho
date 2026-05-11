@@ -19,27 +19,42 @@ impl Account {
     }
 
     /// Calls the Stoat API or client internals to change password for this resource.
-    pub async fn change_password(http: &HttpClient, payload: impl Into<AccountChangePassword>) -> KahoResult {
+    pub async fn change_password(
+        http: &HttpClient,
+        payload: impl Into<AccountChangePassword>,
+    ) -> KahoResult {
         http.change_password(payload).await
     }
 
     /// Calls the Stoat API or client internals to change email for this resource.
-    pub async fn change_email(http: &HttpClient, payload: impl Into<AccountChangeEmail>) -> KahoResult {
+    pub async fn change_email(
+        http: &HttpClient,
+        payload: impl Into<AccountChangeEmail>,
+    ) -> KahoResult {
         http.change_email(payload).await
     }
 
     /// Calls the Stoat API or client internals to request deletion for this resource.
-    pub async fn request_deletion(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
+    pub async fn request_deletion(
+        http: &HttpClient,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
         http.delete_account(payload).await
     }
 
     /// Calls the Stoat API or client internals to confirm deletion for this resource.
-    pub async fn confirm_deletion(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
+    pub async fn confirm_deletion(
+        http: &HttpClient,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
         http.confirm_account_deletion(payload).await
     }
 
     /// Calls the Stoat API or client internals to disable for this resource.
-    pub async fn disable(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
+    pub async fn disable(
+        http: &HttpClient,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
         http.disable_account(payload).await
     }
 }

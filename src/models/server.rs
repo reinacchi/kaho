@@ -216,7 +216,7 @@ use crate::{
     http::HttpClient,
     models::{
         BanCreate, Channel, ChannelCreate, FetchMembersQuery, Invite, Member, MemberList,
-        MembersExperimentalQuery, MemberUpdate, ServerBans,
+        MemberUpdate, MembersExperimentalQuery, ServerBans,
     },
     KahoResult,
 };
@@ -277,7 +277,11 @@ impl Server {
     }
 
     /// Calls the Stoat API or client internals to edit for this resource.
-    pub async fn edit(&self, http: &HttpClient, payload: impl Into<ServerEdit>) -> KahoResult<Self> {
+    pub async fn edit(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<ServerEdit>,
+    ) -> KahoResult<Self> {
         http.edit_server(&self.id, payload).await
     }
 
@@ -292,12 +296,20 @@ impl Server {
     }
 
     /// Create a channel inside this server.
-    pub async fn create_channel(&self, http: &HttpClient, payload: impl Into<ChannelCreate>) -> KahoResult<Channel> {
+    pub async fn create_channel(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<ChannelCreate>,
+    ) -> KahoResult<Channel> {
         http.create_server_channel(&self.id, payload).await
     }
 
     /// Calls the Stoat API or client internals to members for this resource.
-    pub async fn members(&self, http: &HttpClient, query: impl Into<Option<FetchMembersQuery>>) -> KahoResult<MemberList> {
+    pub async fn members(
+        &self,
+        http: &HttpClient,
+        query: impl Into<Option<FetchMembersQuery>>,
+    ) -> KahoResult<MemberList> {
         http.fetch_server_members(&self.id, query).await
     }
 
@@ -312,17 +324,31 @@ impl Server {
     }
 
     /// Edit a member in this server.
-    pub async fn edit_member(&self, http: &HttpClient, user_id: &str, payload: impl Into<MemberUpdate>) -> KahoResult<Member> {
+    pub async fn edit_member(
+        &self,
+        http: &HttpClient,
+        user_id: &str,
+        payload: impl Into<MemberUpdate>,
+    ) -> KahoResult<Member> {
         http.edit_server_member(&self.id, user_id, payload).await
     }
 
     /// Query members using the experimental member query endpoint.
-    pub async fn query_members(&self, http: &HttpClient, payload: impl Into<MembersExperimentalQuery>) -> KahoResult<MemberList> {
+    pub async fn query_members(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<MembersExperimentalQuery>,
+    ) -> KahoResult<MemberList> {
         http.query_server_members(&self.id, payload).await
     }
 
     /// Ban a user from this server.
-    pub async fn ban_user(&self, http: &HttpClient, user_id: &str, payload: impl Into<BanCreate>) -> KahoResult {
+    pub async fn ban_user(
+        &self,
+        http: &HttpClient,
+        user_id: &str,
+        payload: impl Into<BanCreate>,
+    ) -> KahoResult {
         http.ban_user(&self.id, user_id, payload).await
     }
 
@@ -342,7 +368,11 @@ impl Server {
     }
 
     /// Create a role in this server.
-    pub async fn create_role(&self, http: &HttpClient, payload: impl Into<RoleCreate>) -> KahoResult<RoleCreateResponse> {
+    pub async fn create_role(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<RoleCreate>,
+    ) -> KahoResult<RoleCreateResponse> {
         http.create_server_role(&self.id, payload).await
     }
 
@@ -357,22 +387,41 @@ impl Server {
     }
 
     /// Edit a role in this server.
-    pub async fn edit_role(&self, http: &HttpClient, role_id: &str, payload: impl Into<RoleUpdate>) -> KahoResult<Role> {
+    pub async fn edit_role(
+        &self,
+        http: &HttpClient,
+        role_id: &str,
+        payload: impl Into<RoleUpdate>,
+    ) -> KahoResult<Role> {
         http.edit_server_role(&self.id, role_id, payload).await
     }
 
     /// Set permissions for a role in this server.
-    pub async fn set_role_permissions(&self, http: &HttpClient, role_id: &str, payload: OverrideField) -> KahoResult {
-        http.set_server_permissions(&self.id, role_id, payload).await
+    pub async fn set_role_permissions(
+        &self,
+        http: &HttpClient,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult {
+        http.set_server_permissions(&self.id, role_id, payload)
+            .await
     }
 
     /// Set default permissions for this server.
-    pub async fn set_default_permissions(&self, http: &HttpClient, payload: OverrideField) -> KahoResult {
+    pub async fn set_default_permissions(
+        &self,
+        http: &HttpClient,
+        payload: OverrideField,
+    ) -> KahoResult {
         http.set_server_default_permissions(&self.id, payload).await
     }
 
     /// Reorder role ranks in this server.
-    pub async fn set_role_ranks(&self, http: &HttpClient, payload: impl Into<RoleRanksUpdate>) -> KahoResult {
+    pub async fn set_role_ranks(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<RoleRanksUpdate>,
+    ) -> KahoResult {
         http.set_server_role_ranks(&self.id, payload).await
     }
 }

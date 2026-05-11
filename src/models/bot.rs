@@ -22,8 +22,18 @@ pub struct PublicBot {
 
 impl PublicBot {
     /// Invite this public bot to a server.
-    pub async fn invite(&self, http: &HttpClient, server_id: impl Into<Id>) -> KahoResult<BotInviteResponse> {
-        http.invite_bot(&self.id, BotInvite { server: server_id.into() }).await
+    pub async fn invite(
+        &self,
+        http: &HttpClient,
+        server_id: impl Into<Id>,
+    ) -> KahoResult<BotInviteResponse> {
+        http.invite_bot(
+            &self.id,
+            BotInvite {
+                server: server_id.into(),
+            },
+        )
+        .await
     }
 }
 
@@ -65,8 +75,18 @@ impl Bot {
     }
 
     /// Invite this public bot to a server.
-    pub async fn invite(&self, http: &HttpClient, server_id: impl Into<Id>) -> KahoResult<BotInviteResponse> {
-        http.invite_bot(&self.id, BotInvite { server: server_id.into() }).await
+    pub async fn invite(
+        &self,
+        http: &HttpClient,
+        server_id: impl Into<Id>,
+    ) -> KahoResult<BotInviteResponse> {
+        http.invite_bot(
+            &self.id,
+            BotInvite {
+                server: server_id.into(),
+            },
+        )
+        .await
     }
 }
 
@@ -95,7 +115,9 @@ impl From<String> for BotCreate {
 
 impl From<&str> for BotCreate {
     fn from(name: &str) -> Self {
-        Self { name: name.to_owned() }
+        Self {
+            name: name.to_owned(),
+        }
     }
 }
 

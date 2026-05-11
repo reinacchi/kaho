@@ -43,7 +43,11 @@ pub struct User {
 
 impl User {
     /// Calls the Stoat API or client internals to edit for this resource.
-    pub async fn edit(&self, http: &HttpClient, payload: impl Into<UserUpdate>) -> KahoResult<Self> {
+    pub async fn edit(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<UserUpdate>,
+    ) -> KahoResult<Self> {
         http.edit_user(&self.id, payload.into()).await
     }
 
@@ -51,15 +55,18 @@ impl User {
     ///
     /// This endpoint only applies to the authenticated user; the method is
     /// available on `User` for ergonomic use when `self` is the current user.
-    pub async fn change_username(&self, http: &HttpClient, username: impl Into<String>, password: impl Into<String>) -> KahoResult<Self> {
+    pub async fn change_username(
+        &self,
+        http: &HttpClient,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> KahoResult<Self> {
         http.change_username(ChangeUsername {
             username: username.into(),
             password: password.into(),
         })
         .await
     }
-
-
 
     /// Open a direct message channel with this user.
     pub async fn open_dm(&self, http: &HttpClient) -> KahoResult<Channel> {
@@ -72,7 +79,8 @@ impl User {
             user: Some(self.id.clone()),
             reason: Some(reason.into()),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Calls the Stoat API or client internals to flags for this resource.
@@ -323,7 +331,6 @@ pub struct SendFriendRequest {
     /// The username displayed for the user or bot account.
     pub username: String,
 }
-
 
 /// Payload for changing the authenticated user's username.
 #[derive(Clone, Debug, Serialize)]

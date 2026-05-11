@@ -69,8 +69,6 @@ impl Message {
         http.edit_message(&self.channel, &self.id, payload).await
     }
 
-
-
     /// Add a reaction to this message.
     pub async fn react(&self, http: &HttpClient, emoji: &str) -> KahoResult {
         http.add_reaction(&self.channel, &self.id, emoji).await

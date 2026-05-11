@@ -3,7 +3,10 @@ use serde_json::Value;
 
 use crate::{
     http::HttpClient,
-    models::{Attachment, FetchMessageQuery, Id, Invite, Message, MessageEdit, MessageSearch, MessageSend, OverrideField, User},
+    models::{
+        Attachment, FetchMessageQuery, Id, Invite, Message, MessageEdit, MessageSearch,
+        MessageSend, OverrideField, User,
+    },
     KahoResult,
 };
 
@@ -246,12 +249,20 @@ impl Channel {
     }
 
     /// Calls the Stoat API or client internals to edit for this resource.
-    pub async fn edit(&self, http: &HttpClient, payload: impl Into<ChannelUpdate>) -> KahoResult<Self> {
+    pub async fn edit(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<ChannelUpdate>,
+    ) -> KahoResult<Self> {
         http.edit_channel(self.id(), payload).await
     }
 
     /// Close, leave, or delete this channel depending on its type.
-    pub async fn close(&self, http: &HttpClient, query: impl Into<Option<ChannelCloseQuery>>) -> KahoResult {
+    pub async fn close(
+        &self,
+        http: &HttpClient,
+        query: impl Into<Option<ChannelCloseQuery>>,
+    ) -> KahoResult {
         http.close_channel(self.id(), query).await
     }
 
@@ -261,13 +272,24 @@ impl Channel {
     }
 
     /// Set permissions for a role in this channel.
-    pub async fn set_role_permissions(&self, http: &HttpClient, role_id: &str, payload: OverrideField) -> KahoResult {
-        http.set_channel_permissions(self.id(), role_id, payload).await
+    pub async fn set_role_permissions(
+        &self,
+        http: &HttpClient,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult {
+        http.set_channel_permissions(self.id(), role_id, payload)
+            .await
     }
 
     /// Set default permissions for this channel.
-    pub async fn set_default_permissions(&self, http: &HttpClient, payload: OverrideField) -> KahoResult {
-        http.set_channel_default_permissions(self.id(), payload).await
+    pub async fn set_default_permissions(
+        &self,
+        http: &HttpClient,
+        payload: OverrideField,
+    ) -> KahoResult {
+        http.set_channel_default_permissions(self.id(), payload)
+            .await
     }
 
     /// Acknowledge a message in this channel.
@@ -276,17 +298,29 @@ impl Channel {
     }
 
     /// Calls the Stoat API or client internals to messages for this resource.
-    pub async fn messages(&self, http: &HttpClient, query: impl Into<Option<FetchMessageQuery>>) -> KahoResult<Vec<Message>> {
+    pub async fn messages(
+        &self,
+        http: &HttpClient,
+        query: impl Into<Option<FetchMessageQuery>>,
+    ) -> KahoResult<Vec<Message>> {
         http.fetch_messages(self.id(), query).await
     }
 
     /// Send a message to this channel.
-    pub async fn send_message(&self, http: &HttpClient, payload: impl Into<MessageSend>) -> KahoResult<Message> {
+    pub async fn send_message(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<MessageSend>,
+    ) -> KahoResult<Message> {
         http.send_message(self.id(), payload).await
     }
 
     /// Calls the Stoat API or client internals to search messages for this resource.
-    pub async fn search_messages(&self, http: &HttpClient, payload: impl Into<MessageSearch>) -> KahoResult<Vec<Message>> {
+    pub async fn search_messages(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<MessageSearch>,
+    ) -> KahoResult<Vec<Message>> {
         http.search_messages(self.id(), payload).await
     }
 
@@ -296,7 +330,12 @@ impl Channel {
     }
 
     /// Edit one message in this channel.
-    pub async fn edit_message(&self, http: &HttpClient, message_id: &str, payload: impl Into<MessageEdit>) -> KahoResult<Message> {
+    pub async fn edit_message(
+        &self,
+        http: &HttpClient,
+        message_id: &str,
+        payload: impl Into<MessageEdit>,
+    ) -> KahoResult<Message> {
         http.edit_message(self.id(), message_id, payload).await
     }
 

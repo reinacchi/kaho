@@ -310,8 +310,7 @@ impl HttpClient {
 
     /// Calls the Stoat API or client internals to create bot for this resource.
     pub async fn create_bot(&self, payload: impl Into<BotCreate>) -> KahoResult<BotCreateResponse> {
-        self.post(Endpoint::BotCreate.path(), payload.into())
-            .await
+        self.post(Endpoint::BotCreate.path(), payload.into()).await
     }
 
     /// Calls the Stoat API or client internals to invite bot for this resource.
@@ -637,10 +636,7 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to report safety for this resource.
-    pub async fn report_safety(
-        &self,
-        payload: impl Into<SafetyReportCreate>,
-    ) -> KahoResult {
+    pub async fn report_safety(&self, payload: impl Into<SafetyReportCreate>) -> KahoResult {
         self.post_empty(Endpoint::UserSafety.path(), payload.into())
             .await
     }
@@ -682,10 +678,7 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to create channel invite for this resource.
-    pub async fn create_channel_invite(
-        &self,
-        channel_id: &str,
-    ) -> KahoResult<Invite> {
+    pub async fn create_channel_invite(&self, channel_id: &str) -> KahoResult<Invite> {
         self.post(Endpoint::ChannelInvites(channel_id.to_owned()).path(), ())
             .await
     }
@@ -765,19 +758,13 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to fetch group members for this resource.
-    pub async fn fetch_group_members(
-        &self,
-        channel_id: &str,
-    ) -> KahoResult<Vec<User>> {
+    pub async fn fetch_group_members(&self, channel_id: &str) -> KahoResult<Vec<User>> {
         self.get(Endpoint::ChannelMembers(channel_id.to_owned()).path())
             .await
     }
 
     /// Calls the Stoat API or client internals to create group for this resource.
-    pub async fn create_group(
-        &self,
-        payload: impl Into<GroupCreate>,
-    ) -> KahoResult<Channel> {
+    pub async fn create_group(&self, payload: impl Into<GroupCreate>) -> KahoResult<Channel> {
         self.post(Endpoint::ChannelCreate.path(), payload.into())
             .await
     }
@@ -808,15 +795,15 @@ impl HttpClient {
 
     /// Calls the Stoat API or client internals to end ring for this resource.
     pub async fn end_ring(&self, channel_id: &str, user_id: &str) -> KahoResult {
-        self.put(Endpoint::ChannelEndRing(channel_id.to_owned(), user_id.to_owned()).path(), ())
-            .await
+        self.put(
+            Endpoint::ChannelEndRing(channel_id.to_owned(), user_id.to_owned()).path(),
+            (),
+        )
+        .await
     }
 
     /// Calls the Stoat API or client internals to fetch channel webhooks for this resource.
-    pub async fn fetch_channel_webhooks(
-        &self,
-        channel_id: &str,
-    ) -> KahoResult<Vec<Webhook>> {
+    pub async fn fetch_channel_webhooks(&self, channel_id: &str) -> KahoResult<Vec<Webhook>> {
         self.get(Endpoint::ChannelWebhooks(channel_id.to_owned()).path())
             .await
     }
@@ -860,8 +847,11 @@ impl HttpClient {
 
     /// Calls the Stoat API or client internals to delete webhook with token for this resource.
     pub async fn delete_webhook_with_token(&self, webhook_id: &str, token: &str) -> KahoResult {
-        self.delete(Endpoint::WebhookWithToken(webhook_id.to_owned(), token.to_owned()).path(), None::<()>)
-            .await
+        self.delete(
+            Endpoint::WebhookWithToken(webhook_id.to_owned(), token.to_owned()).path(),
+            None::<()>,
+        )
+        .await
     }
 
     /// Calls the Stoat API or client internals to edit webhook with token for this resource.
@@ -880,7 +870,8 @@ impl HttpClient {
 
     /// Calls the Stoat API or client internals to fetch webhook for this resource.
     pub async fn fetch_webhook(&self, webhook_id: &str) -> KahoResult<Webhook> {
-        self.get(Endpoint::Webhook(webhook_id.to_owned()).path()).await
+        self.get(Endpoint::Webhook(webhook_id.to_owned()).path())
+            .await
     }
 
     /// Calls the Stoat API or client internals to delete webhook for this resource.
@@ -895,8 +886,11 @@ impl HttpClient {
         webhook_id: &str,
         payload: impl Into<WebhookUpdate>,
     ) -> KahoResult<Webhook> {
-        self.patch(Endpoint::Webhook(webhook_id.to_owned()).path(), payload.into())
-            .await
+        self.patch(
+            Endpoint::Webhook(webhook_id.to_owned()).path(),
+            payload.into(),
+        )
+        .await
     }
 
     /// Calls the Stoat API or client internals to execute github webhook for this resource.
@@ -914,10 +908,7 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to create server for this resource.
-    pub async fn create_server(
-        &self,
-        payload: impl Into<ServerCreate>,
-    ) -> KahoResult<Server> {
+    pub async fn create_server(&self, payload: impl Into<ServerCreate>) -> KahoResult<Server> {
         self.post(Endpoint::ServerCreate.path(), payload.into())
             .await
     }
@@ -1054,19 +1045,13 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to fetch server bans for this resource.
-    pub async fn fetch_server_bans(
-        &self,
-        server_id: &str,
-    ) -> KahoResult<ServerBans> {
+    pub async fn fetch_server_bans(&self, server_id: &str) -> KahoResult<ServerBans> {
         self.get(Endpoint::ServerBans(server_id.to_owned()).path())
             .await
     }
 
     /// Calls the Stoat API or client internals to fetch server invites for this resource.
-    pub async fn fetch_server_invites(
-        &self,
-        server_id: &str,
-    ) -> KahoResult<Vec<Invite>> {
+    pub async fn fetch_server_invites(&self, server_id: &str) -> KahoResult<Vec<Invite>> {
         self.get(Endpoint::ServerInvites(server_id.to_owned()).path())
             .await
     }
@@ -1085,11 +1070,7 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to fetch server role for this resource.
-    pub async fn fetch_server_role(
-        &self,
-        server_id: &str,
-        role_id: &str,
-    ) -> KahoResult<Role> {
+    pub async fn fetch_server_role(&self, server_id: &str, role_id: &str) -> KahoResult<Role> {
         self.get(Endpoint::ServerRole(server_id.to_owned(), role_id.to_owned()).path())
             .await
     }
@@ -1167,7 +1148,8 @@ impl HttpClient {
         &self,
         payload: impl Into<OnboardingComplete>,
     ) -> KahoResult<User> {
-        self.post(Endpoint::OnboardingComplete.path(), payload.into()).await
+        self.post(Endpoint::OnboardingComplete.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to validate MFA ticket for this resource.
@@ -1175,7 +1157,8 @@ impl HttpClient {
         &self,
         payload: impl Into<MfaTicketPayload>,
     ) -> KahoResult<MfaResponse> {
-        self.put_return(Endpoint::MfaTicket.path(), payload.into()).await
+        self.put_return(Endpoint::MfaTicket.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to fetch MFA for this resource.
@@ -1188,7 +1171,8 @@ impl HttpClient {
         &self,
         payload: impl Into<MfaRecoveryPayload>,
     ) -> KahoResult<MfaResponse> {
-        self.post(Endpoint::MfaRecovery.path(), payload.into()).await
+        self.post(Endpoint::MfaRecovery.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to regenerate MFA recovery for this resource.
@@ -1196,7 +1180,8 @@ impl HttpClient {
         &self,
         payload: impl Into<MfaRecoveryPayload>,
     ) -> KahoResult<MfaResponse> {
-        self.patch(Endpoint::MfaRecovery.path(), payload.into()).await
+        self.patch(Endpoint::MfaRecovery.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to fetch MFA methods for this resource.
@@ -1209,7 +1194,8 @@ impl HttpClient {
         &self,
         payload: impl Into<MfaTotpPayload>,
     ) -> KahoResult<MfaResponse> {
-        self.put_return(Endpoint::MfaTotp.path(), payload.into()).await
+        self.put_return(Endpoint::MfaTotp.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to verify MFA TOTP for this resource.
@@ -1221,11 +1207,9 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to disable MFA TOTP for this resource.
-    pub async fn disable_mfa_totp(
-        &self,
-        payload: impl Into<MfaTotpPayload>,
-    ) -> KahoResult {
-        self.delete(Endpoint::MfaTotp.path(), Some(payload.into())).await
+    pub async fn disable_mfa_totp(&self, payload: impl Into<MfaTotpPayload>) -> KahoResult {
+        self.delete(Endpoint::MfaTotp.path(), Some(payload.into()))
+            .await
     }
 
     /// Calls the Stoat API or client internals to fetch sync settings for this resource.
@@ -1233,15 +1217,14 @@ impl HttpClient {
         &self,
         payload: impl Into<SyncSettingsFetch>,
     ) -> KahoResult<SyncSettings> {
-        self.post(Endpoint::SyncSettingsFetch.path(), payload.into()).await
+        self.post(Endpoint::SyncSettingsFetch.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to set sync setting for this resource.
-    pub async fn set_sync_setting(
-        &self,
-        payload: impl Into<SyncSettingsSet>,
-    ) -> KahoResult {
-        self.post_empty(Endpoint::SyncSettingsSet.path(), payload.into()).await
+    pub async fn set_sync_setting(&self, payload: impl Into<SyncSettingsSet>) -> KahoResult {
+        self.post_empty(Endpoint::SyncSettingsSet.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to fetch unreads for this resource.
@@ -1250,18 +1233,14 @@ impl HttpClient {
     }
 
     /// Calls the Stoat API or client internals to subscribe push for this resource.
-    pub async fn subscribe_push(
-        &self,
-        payload: impl Into<PushSubscription>,
-    ) -> KahoResult {
-        self.post_empty(Endpoint::PushSubscribe.path(), payload.into()).await
+    pub async fn subscribe_push(&self, payload: impl Into<PushSubscription>) -> KahoResult {
+        self.post_empty(Endpoint::PushSubscribe.path(), payload.into())
+            .await
     }
 
     /// Calls the Stoat API or client internals to unsubscribe push for this resource.
-    pub async fn unsubscribe_push(
-        &self,
-        payload: impl Into<PushSubscription>,
-    ) -> KahoResult {
-        self.post_empty(Endpoint::PushUnsubscribe.path(), payload.into()).await
+    pub async fn unsubscribe_push(&self, payload: impl Into<PushSubscription>) -> KahoResult {
+        self.post_empty(Endpoint::PushUnsubscribe.path(), payload.into())
+            .await
     }
 }

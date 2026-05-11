@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{http::HttpClient, models::{Id, Server, Channel, User}, KahoResult};
+use crate::{
+    http::HttpClient,
+    models::{Channel, Id, Server, User},
+    KahoResult,
+};
 
 /// Invite object returned by invite endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

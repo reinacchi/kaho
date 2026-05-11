@@ -86,7 +86,11 @@ impl Webhook {
     }
 
     /// Calls the Stoat API or client internals to edit for this resource.
-    pub async fn edit(&self, http: &HttpClient, payload: impl Into<WebhookUpdate>) -> KahoResult<Self> {
+    pub async fn edit(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<WebhookUpdate>,
+    ) -> KahoResult<Self> {
         http.edit_webhook(&self.id, payload).await
     }
 
@@ -96,7 +100,11 @@ impl Webhook {
     }
 
     /// Execute this webhook when its token is present on the model.
-    pub async fn execute(&self, http: &HttpClient, payload: impl Into<WebhookExecute>) -> KahoResult {
+    pub async fn execute(
+        &self,
+        http: &HttpClient,
+        payload: impl Into<WebhookExecute>,
+    ) -> KahoResult {
         let token = self.token.as_deref().unwrap_or_default();
         http.execute_webhook(&self.id, token, payload).await
     }

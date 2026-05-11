@@ -45,15 +45,9 @@ pub enum AttachmentMetadata {
     /// Represents the file variant for this public enum.
     File,
     /// Represents the image variant for this public enum.
-    Image {
-        height: usize,
-        width: usize,
-    },
+    Image { height: usize, width: usize },
     /// Represents the text variant for this public enum.
     Text,
     /// Represents the video variant for this public enum.
-    Video {
-        height: usize,
-        width: usize,
-    },
+    Video { height: usize, width: usize },
 }
