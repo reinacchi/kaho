@@ -135,7 +135,7 @@ impl UserPermission {
 }
 
 /// Raw representation of permission overrides used in storage.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct OverrideField {
     /// Bits for allowed permissions.
     pub a: Permission,

@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Represents a user.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct User {
     /// The ID of the user.
     #[serde(rename = "_id")]
@@ -45,6 +45,58 @@ impl User {
     /// Edit this user.
     pub async fn edit(&self, http: &HttpClient, payload: impl Into<UserUpdate>) -> KahoResult<Self> {
         http.edit_user(&self.id, payload.into()).await
+    }
+
+    /// Change the current user's username.
+    ///
+    /// This endpoint only applies to the authenticated user; the method is
+    /// available on `User` for ergonomic use when `self` is the current user.
+    pub async fn change_username(&self, http: &HttpClient, username: impl Into<String>, password: impl Into<String>) -> KahoResult<Self> {
+        http.change_username(ChangeUsername {
+            username: username.into(),
+            password: password.into(),
+        })
+        .await
+    }
+
+    /// Fetch this user's flags.
+    pub async fn flags(&self, http: &HttpClient) -> KahoResult<FlagResponse> {
+        http.fetch_user_flags(&self.id).await
+    }
+
+    /// Fetch this user's default avatar image.
+    pub async fn default_avatar(&self, http: &HttpClient) -> KahoResult<DefaultAvatar> {
+        http.fetch_default_avatar(&self.id).await
+    }
+
+    /// Fetch this user's profile.
+    pub async fn profile(&self, http: &HttpClient) -> KahoResult<UserProfile> {
+        http.fetch_user_profile(&self.id).await
+    }
+
+    /// Fetch mutual relationships shared with this user.
+    pub async fn mutual(&self, http: &HttpClient) -> KahoResult<MutualResponse> {
+        http.fetch_mutual_relationships(&self.id).await
+    }
+
+    /// Accept this user's incoming friend request.
+    pub async fn accept_friend_request(&self, http: &HttpClient) -> KahoResult<Self> {
+        http.accept_friend_request(&self.id).await
+    }
+
+    /// Remove this user as a friend, or deny their request.
+    pub async fn remove_friend(&self, http: &HttpClient) -> KahoResult<Self> {
+        http.remove_friend(&self.id).await
+    }
+
+    /// Block this user.
+    pub async fn block(&self, http: &HttpClient) -> KahoResult<Self> {
+        http.block_user(&self.id).await
+    }
+
+    /// Unblock this user.
+    pub async fn unblock(&self, http: &HttpClient) -> KahoResult<Self> {
+        http.unblock_user(&self.id).await
     }
 }
 
@@ -194,7 +246,7 @@ pub enum UserFields {
 
 bitflags! {
     /// Badge flags attached to a user.
-    #[derive(Clone, Debug, PartialEq, Deserialize, Default)]
+    #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Default)]
     #[serde(transparent)]
     pub struct UserBadges: u32 {
         const Developer = 1;
@@ -213,7 +265,7 @@ bitflags! {
 
 bitflags! {
     /// Account flags attached to a user.
-    #[derive(Clone, Debug, PartialEq, Deserialize, Default)]
+    #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Default)]
     #[serde(transparent)]
     pub struct UserFlags: u32 {
         const Suspended = 1;
@@ -224,28 +276,62 @@ bitflags! {
 }
 
 /// Response containing a user flag bitfield.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FlagResponse {
     /// Raw user flags returned by the API.
     pub flags: i32,
 }
 
 /// Mutual users and servers shared with another user.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MutualResponse {
     /// Mutual user IDs.
     pub users: Vec<String>,
     /// Mutual server IDs.
     pub servers: Vec<String>,
+    /// Mutual group or DM channel IDs.
+    #[serde(default)]
+    pub channels: Vec<String>,
 }
 
 /// Public bot ownership information.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotInformation {
     /// ID of the bot owner.
     pub owner: String,
 }
 
 /// Request payload for sending a friend request.
+#[derive(Clone, Debug, Serialize)]
 pub struct SendFriendRequest {
     /// Username to send a friend request to.
     pub username: String,
+}
+
+
+/// Payload for changing the authenticated user's username.
+#[derive(Clone, Debug, Serialize)]
+pub struct ChangeUsername {
+    /// New username.
+    pub username: String,
+    /// Current account password.
+    pub password: String,
+}
+
+/// User profile returned by the profile endpoint.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct UserProfile {
+    /// Profile content / bio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Profile background attachment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<Attachment>,
+}
+
+/// Default avatar image returned by the API.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DefaultAvatar {
+    /// Raw PNG image bytes.
+    pub bytes: Vec<u8>,
 }

@@ -1,10 +1,22 @@
 /// Stoat API endpoint variants used to construct request paths.
 #[derive(Debug, Clone)]
 pub enum Endpoint {
+    // Account-related
+    Account,
+    AccountChangeEmail,
+    AccountChangePassword,
+    AccountCreate,
+    AccountDelete,
+    AccountDisable,
+    AccountResetPassword,
+    AccountReverify,
+    AccountVerify(String),
+
     // Bot-related
     Bot(String),
     BotCreate(),
     BotInvite(String),
+    BotsOwned,
 
     // Channel-related
     Channel(String),
@@ -52,6 +64,7 @@ pub enum Endpoint {
     ServerRoles(String),
 
     // User-related
+    UserMe,
     User(String),
     UserDM(String),
     UserDMs(),
@@ -59,17 +72,29 @@ pub enum Endpoint {
     UserFlags(String),
     UserProfile(String),
     UserSafety(),
-    UserUsername(String),
+    UserUsername(),
 }
 
 impl Endpoint {
     /// Returns the path component of the endpoint URL
     pub fn path(&self) -> String {
         match self {
+            // Account-related
+            Endpoint::Account => format!("/auth/account/"),
+            Endpoint::AccountChangeEmail => format!("/auth/account/change/email"),
+            Endpoint::AccountChangePassword => format!("/auth/account/change/password"),
+            Endpoint::AccountCreate => format!("/auth/account/create"),
+            Endpoint::AccountDelete => format!("/auth/account/delete"),
+            Endpoint::AccountDisable => format!("/auth/account/disable"),
+            Endpoint::AccountResetPassword => format!("/auth/account/reset_password"),
+            Endpoint::AccountReverify => format!("/auth/account/reverify"),
+            Endpoint::AccountVerify(code) => format!("/auth/account/verify/{}", code),
+
             // Bot-related
             Endpoint::Bot(bot_id) => format!("/bots/{}", bot_id),
             Endpoint::BotCreate() => format!("/bots/create"),
             Endpoint::BotInvite(bot_id) => format!("/bots/{}/invite", bot_id),
+            Endpoint::BotsOwned => format!("/bots/@me"),
 
             // Channel-related
             Endpoint::Channel(channel_id) => format!("/channels/{}", channel_id),
@@ -92,7 +117,10 @@ impl Endpoint {
                 format!("/channels/{}/messages/{}/pin", channel_id, message_id)
             }
             Endpoint::ChannelMessageReaction(channel_id, message_id, emoji_id) => {
-                format!("/channels/{}/messages/{}/reactions/{}", channel_id, message_id, emoji_id)
+                format!(
+                    "/channels/{}/messages/{}/reactions/{}",
+                    channel_id, message_id, emoji_id
+                )
             }
             Endpoint::ChannelMessageReactions(channel_id, message_id) => {
                 format!("/channels/{}/messages/{}/reactions", channel_id, message_id)
@@ -134,7 +162,9 @@ impl Endpoint {
             Endpoint::ServerMember(server_id, member_id) => {
                 format!("/servers/{}/members/{}", server_id, member_id)
             }
-            Endpoint::ServerMemberExperimentalQuery(server_id) => format!("/servers/{}/members_experimental_query", server_id),
+            Endpoint::ServerMemberExperimentalQuery(server_id) => {
+                format!("/servers/{}/members_experimental_query", server_id)
+            }
             Endpoint::ServerMembers(server_id) => format!("/servers/{}/members", server_id),
             Endpoint::ServerPermission(server_id, role_id) => {
                 format!("/server/{}/permissions/{}", server_id, role_id)
@@ -145,6 +175,7 @@ impl Endpoint {
             Endpoint::ServerRoles(server_id) => format!("/server/{}/roles", server_id),
 
             // User-related
+            Endpoint::UserMe => format!("/users/@me"),
             Endpoint::User(user_id) => format!("/users/{}", user_id),
             Endpoint::UserDM(user_id) => format!("/users/{}/dm", user_id),
             Endpoint::UserDMs() => format!("/users/dms"),
@@ -152,7 +183,7 @@ impl Endpoint {
             Endpoint::UserFlags(user_id) => format!("/users/{}/flags", user_id),
             Endpoint::UserProfile(user_id) => format!("/users/{}/profile", user_id),
             Endpoint::UserSafety() => format!("/safety/report"),
-            Endpoint::UserUsername(user_id) => format!("/users/{}/username", user_id),
+            Endpoint::UserUsername() => format!("/users/@me/username"),
         }
     }
 }

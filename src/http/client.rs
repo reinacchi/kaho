@@ -10,8 +10,13 @@ use crate::{
     error::{KahoError, KahoResult},
     http::{endpoint::Endpoint, HttpConfig},
     models::{
-        FetchMessageQuery, FlagResponse, Message, MessageEdit, MessageReplyIntent, MessageSearch,
-        MessageSend, PublicBot, User, UserUpdate,
+        Account, AccountChangeEmail, AccountChangePassword, AccountCreate,
+        AccountPasswordConfirmation, AccountPasswordReset, AccountResendVerification,
+        AccountSendPasswordReset, Bot, BotCreate, BotCreateResponse, BotInvite, BotInviteResponse,
+        BotUpdate, ChangeUsername, DefaultAvatar, Emoji, EmojiCreate, FetchMessageQuery,
+        FlagResponse, Invite, InviteJoinResponse, Message, MessageEdit, MessageReplyIntent,
+        MessageSearch, MessageSend, MutualResponse, PublicBot, SendFriendRequest, User,
+        UserProfile, UserUpdate,
     },
 };
 
@@ -54,6 +59,17 @@ impl HttpClient {
         Ok(payload)
     }
 
+    /// Send a GET request and return the raw response bytes.
+    pub async fn get_bytes(&self, path: impl AsRef<str>) -> KahoResult<Vec<u8>> {
+        let response = self.client.get(self.make_url(path)).send().await?;
+
+        if !response.status().is_success() {
+            return Err(KahoError::FailedRequest(response));
+        }
+
+        Ok(response.bytes().await?.to_vec())
+    }
+
     /// Send a POST request with a JSON payload and deserialize the JSON response.
     pub async fn post<T: DeserializeOwned, U: Serialize>(
         &self,
@@ -76,6 +92,38 @@ impl HttpClient {
         Ok(payload)
     }
 
+    /// Send a POST request with a JSON payload and ignore the response body.
+    pub async fn post_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
+        let response = self
+            .client
+            .post(self.make_url(path))
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(KahoError::FailedRequest(response));
+        }
+
+        Ok(())
+    }
+
+    /// Send a PATCH request with a JSON payload and ignore the response body.
+    pub async fn patch_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
+        let response = self
+            .client
+            .patch(self.make_url(path))
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(KahoError::FailedRequest(response));
+        }
+
+        Ok(())
+    }
+
     /// Send a PUT request with a JSON payload.
     pub async fn put<T: Serialize>(&self, path: impl AsRef<str>, payload: T) -> KahoResult {
         let response = self
@@ -90,6 +138,28 @@ impl HttpClient {
         }
 
         Ok(())
+    }
+
+    /// Send a PUT request with a JSON payload and deserialize the JSON response.
+    pub async fn put_return<T: Serialize, R: DeserializeOwned>(
+        &self,
+        path: impl AsRef<str>,
+        payload: T,
+    ) -> KahoResult<R> {
+        let response = self
+            .client
+            .put(self.make_url(path))
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(KahoError::FailedRequest(response));
+        }
+
+        let payload = response.json().await?;
+
+        Ok(payload)
     }
 
     /// Send a PATCH request with a JSON payload and deserialize the JSON response.
@@ -135,6 +205,110 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Send a DELETE request and deserialize the JSON response.
+    pub async fn delete_return<T: Serialize, R: DeserializeOwned>(
+        &self,
+        path: impl AsRef<str>,
+        payload: Option<T>,
+    ) -> KahoResult<R> {
+        let mut request = self.client.delete(self.make_url(path));
+
+        if let Some(payload) = payload {
+            request = request.json(&payload);
+        }
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(KahoError::FailedRequest(response));
+        }
+
+        let payload = response.json().await?;
+
+        Ok(payload)
+    }
+
+    // Account-related methods
+    /// Create a new account.
+    pub async fn create_account(&self, payload: impl Into<AccountCreate>) -> KahoResult {
+        self.post_empty(Endpoint::AccountCreate.path(), payload.into())
+            .await
+    }
+
+    /// Resend an account verification email.
+    pub async fn resend_account_verification(
+        &self,
+        payload: impl Into<AccountResendVerification>,
+    ) -> KahoResult {
+        self.post_empty(Endpoint::AccountReverify.path(), payload.into())
+            .await
+    }
+
+    /// Confirm account deletion.
+    pub async fn confirm_account_deletion(
+        &self,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
+        self.put(Endpoint::AccountDelete.path(), payload.into())
+            .await
+    }
+
+    /// Request account deletion.
+    pub async fn delete_account(
+        &self,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
+        self.post_empty(Endpoint::AccountDelete.path(), payload.into())
+            .await
+    }
+
+    /// Fetch account information.
+    pub async fn fetch_account(&self) -> KahoResult<Account> {
+        self.get(Endpoint::Account.path()).await
+    }
+
+    /// Disable the current account.
+    pub async fn disable_account(
+        &self,
+        payload: impl Into<AccountPasswordConfirmation>,
+    ) -> KahoResult {
+        self.post_empty(Endpoint::AccountDisable.path(), payload.into())
+            .await
+    }
+
+    /// Change the current account password.
+    pub async fn change_password(&self, payload: impl Into<AccountChangePassword>) -> KahoResult {
+        self.patch_empty(Endpoint::AccountChangePassword.path(), payload.into())
+            .await
+    }
+
+    /// Change the current account email.
+    pub async fn change_email(&self, payload: impl Into<AccountChangeEmail>) -> KahoResult {
+        self.patch_empty(Endpoint::AccountChangeEmail.path(), payload.into())
+            .await
+    }
+
+    /// Verify an account email with a verification code.
+    pub async fn verify_email(&self, code: &str) -> KahoResult {
+        self.post_empty(Endpoint::AccountVerify(code.to_string()).path(), ())
+            .await
+    }
+
+    /// Send a password reset email.
+    pub async fn send_password_reset(
+        &self,
+        payload: impl Into<AccountSendPasswordReset>,
+    ) -> KahoResult {
+        self.post_empty(Endpoint::AccountResetPassword.path(), payload.into())
+            .await
+    }
+
+    /// Complete a password reset.
+    pub async fn reset_password(&self, payload: impl Into<AccountPasswordReset>) -> KahoResult {
+        self.patch_empty(Endpoint::AccountResetPassword.path(), payload.into())
+            .await
+    }
+
     // Bot-related methods
     /// Get a public bot.
     pub async fn fetch_public_bot(&self, bot_id: &str) -> KahoResult<PublicBot> {
@@ -142,10 +316,51 @@ impl HttpClient {
             .await
     }
 
+    /// Create a new bot.
+    pub async fn create_bot(&self, payload: impl Into<BotCreate>) -> KahoResult<BotCreateResponse> {
+        self.post(Endpoint::BotCreate().path(), payload.into())
+            .await
+    }
+
+    /// Invite a public bot to a server.
+    pub async fn invite_bot(
+        &self,
+        bot_id: &str,
+        payload: impl Into<BotInvite>,
+    ) -> KahoResult<BotInviteResponse> {
+        self.post(
+            Endpoint::BotInvite(bot_id.to_string()).path(),
+            payload.into(),
+        )
+        .await
+    }
+
+    /// Fetch a bot by ID.
+    pub async fn fetch_bot(&self, bot_id: &str) -> KahoResult<Bot> {
+        self.get(Endpoint::Bot(bot_id.to_string()).path()).await
+    }
+
+    /// Delete a bot by ID.
+    pub async fn delete_bot(&self, bot_id: &str) -> KahoResult {
+        self.delete(Endpoint::Bot(bot_id.to_string()).path(), None::<()>)
+            .await
+    }
+
+    /// Edit a bot by ID.
+    pub async fn edit_bot(&self, bot_id: &str, payload: impl Into<BotUpdate>) -> KahoResult<Bot> {
+        self.patch(Endpoint::Bot(bot_id.to_string()).path(), payload.into())
+            .await
+    }
+
+    /// Fetch bots owned by the current account.
+    pub async fn fetch_owned_bots(&self) -> KahoResult<Vec<Bot>> {
+        self.get(Endpoint::BotsOwned.path()).await
+    }
+
     // User-related methods
     /// Get properties of the bot user.
     pub async fn fetch_self(&self) -> KahoResult<User> {
-        self.get(Endpoint::User("@me".to_string()).path()).await
+        self.get(Endpoint::UserMe.path()).await
     }
 
     /// Edit a user.
@@ -166,6 +381,113 @@ impl HttpClient {
     /// Get the flags of the targeted user.
     pub async fn fetch_user_flags(&self, user_id: &str) -> KahoResult<FlagResponse> {
         self.get(Endpoint::UserFlags(user_id.to_string()).path())
+            .await
+    }
+
+    /// Change the current user's username.
+    pub async fn change_username(&self, payload: impl Into<ChangeUsername>) -> KahoResult<User> {
+        self.patch(Endpoint::UserUsername().path(), payload.into())
+            .await
+    }
+
+    /// Fetch the default avatar for a user.
+    pub async fn fetch_default_avatar(&self, user_id: &str) -> KahoResult<DefaultAvatar> {
+        let bytes = self
+            .get_bytes(Endpoint::UserDefaultAvatar(user_id.to_string()).path())
+            .await?;
+
+        Ok(DefaultAvatar { bytes })
+    }
+
+    /// Fetch a user's profile.
+    pub async fn fetch_user_profile(&self, user_id: &str) -> KahoResult<UserProfile> {
+        self.get(Endpoint::UserProfile(user_id.to_string()).path())
+            .await
+    }
+
+    /// Fetch mutual friends, servers, groups, and DMs for a user.
+    pub async fn fetch_mutual_relationships(&self, user_id: &str) -> KahoResult<MutualResponse> {
+        self.get(Endpoint::RelationshipMutual(user_id.to_string()).path())
+            .await
+    }
+
+    /// Accept an incoming friend request.
+    pub async fn accept_friend_request(&self, user_id: &str) -> KahoResult<User> {
+        self.put_return(Endpoint::RelationshipFriend(user_id.to_string()).path(), ())
+            .await
+    }
+
+    /// Deny a friend request or remove a friend.
+    pub async fn remove_friend(&self, user_id: &str) -> KahoResult<User> {
+        self.delete_return(
+            Endpoint::RelationshipFriend(user_id.to_string()).path(),
+            None::<()>,
+        )
+        .await
+    }
+
+    /// Block a user.
+    pub async fn block_user(&self, user_id: &str) -> KahoResult<User> {
+        self.put_return(Endpoint::RelationshipBlock(user_id.to_string()).path(), ())
+            .await
+    }
+
+    /// Unblock a user.
+    pub async fn unblock_user(&self, user_id: &str) -> KahoResult<User> {
+        self.delete_return(
+            Endpoint::RelationshipBlock(user_id.to_string()).path(),
+            None::<()>,
+        )
+        .await
+    }
+
+    /// Send a friend request.
+    pub async fn send_friend_request(
+        &self,
+        payload: impl Into<SendFriendRequest>,
+    ) -> KahoResult<User> {
+        self.post(Endpoint::RelationshipFriends().path(), payload.into())
+            .await
+    }
+
+    // Custom emoji methods
+    /// Fetch a custom emoji.
+    pub async fn fetch_emoji(&self, emoji_id: &str) -> KahoResult<Emoji> {
+        self.get(Endpoint::Emoji(emoji_id.to_string()).path()).await
+    }
+
+    /// Create or replace a custom emoji.
+    pub async fn create_emoji(
+        &self,
+        emoji_id: &str,
+        payload: impl Into<EmojiCreate>,
+    ) -> KahoResult<Emoji> {
+        self.put_return(Endpoint::Emoji(emoji_id.to_string()).path(), payload.into())
+            .await
+    }
+
+    /// Delete a custom emoji.
+    pub async fn delete_emoji(&self, emoji_id: &str) -> KahoResult {
+        self.delete(Endpoint::Emoji(emoji_id.to_string()).path(), None::<()>)
+            .await
+    }
+
+    // Invite methods
+    /// Fetch an invite.
+    pub async fn fetch_invite(&self, invite_id: &str) -> KahoResult<Invite> {
+        self.get(Endpoint::Invite(invite_id.to_string()).path())
+            .await
+    }
+
+    /// Join or accept an invite.
+    pub async fn accept_invite(&self, invite_id: &str) -> KahoResult<InviteJoinResponse> {
+        self.post(Endpoint::Invite(invite_id.to_string()).path(), ())
+            .await
+    }
+
+    /// Delete an invite.
+    pub async fn delete_invite(&self, invite_id: &str) -> KahoResult {
+        self.delete(Endpoint::Invite(invite_id.to_string()).path(), None::<()>)
             .await
     }
 

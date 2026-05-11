@@ -9,7 +9,7 @@ use crate::models::{
 };
 
 /// Represents a role in a server, which defines permissions and attributes for members.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Role {
     /// The colour associated with the role.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,7 +94,7 @@ bitflags! {
 }
 
 /// Represents a Stoat server.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Server {
     /// Whether the server has analytics enabled.
     #[serde(skip_serializing_if = "Option::is_none")]

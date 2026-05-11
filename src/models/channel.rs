@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::Id;
 
 /// Represents a channel in a server.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum Channel {
     /// A direct message channel between two users.
     DirectMessage(DirectMessageChannel),
@@ -81,7 +81,7 @@ impl Channel {
 }
 
 /// Represents a direct message channel between two users.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DirectMessageChannel {
     /// Whether the direct message is active.
     pub active: bool,
