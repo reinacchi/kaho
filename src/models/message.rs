@@ -40,6 +40,26 @@ pub struct Message {
 }
 
 impl Message {
+    /// Acknowledge the message corresponding to this instance.
+    pub async fn acknowledge(&self, http: &HttpClient) -> KahoResult {
+        http.acknowledge_message(&self.channel, &self.id).await
+    }
+
+    /// Delete the message corresponding to this instance.
+    pub async fn delete(&self, http: &HttpClient) -> KahoResult {
+        http.delete_message(&self.channel, &self.id).await
+    }
+
+    /// Pin the message corresponding to this instance.
+    pub async fn pin(&self, http: &HttpClient) -> KahoResult {
+        http.pin_message(&self.channel, &self.id).await
+    }
+
+    /// Unpin the message corresponding to this instance.
+    pub async fn unpin(&self, http: &HttpClient) -> KahoResult {
+        http.unpin_message(&self.channel, &self.id).await
+    }
+
     /// Edit this message.
     pub async fn edit(
         &self,
@@ -105,6 +125,73 @@ pub struct MessageMasquerade {
     pub colour: Option<String>,
     /// Display name for the masquerade.
     pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum SearchMessageSort {
+    Relevance,
+    Newest,
+    Oldest,
+}
+
+impl std::fmt::Display for SearchMessageSort {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            SearchMessageSort::Relevance => write!(f, "Relevance"),
+            SearchMessageSort::Newest => write!(f, "Newest"),
+            SearchMessageSort::Oldest => write!(f, "Oldest"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FetchMessageQuery {
+    /// ID of the message to search after.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+
+    /// ID of the message to search before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+
+    /// Maximum number of messages to return. Must be between 1 and 100.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+
+    /// The sort order for the search results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<SearchMessageSort>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MessageSearch {
+    /// ID of the message to search after.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+
+    /// ID of the message to search before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+
+    /// Whether to include the content of the message in the search.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_users: Option<bool>,
+
+    /// Maximum number of messages to return. Must be between 1 and 100.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+
+    /// Whether to only search for pinned messages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+
+    /// The search query string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+
+    /// The sort order for the search results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<SearchMessageSort>,
 }
 
 /// Describes a message reply target.

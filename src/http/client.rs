@@ -10,8 +10,8 @@ use crate::{
     error::{KahoError, KahoResult},
     http::{endpoint::Endpoint, HttpConfig},
     models::{
-        FlagResponse, Message, MessageEdit, MessageReplyIntent, MessageSend, PublicBot, User,
-        UserUpdate,
+        FetchMessageQuery, FlagResponse, Message, MessageEdit, MessageReplyIntent, MessageSearch,
+        MessageSend, PublicBot, User, UserUpdate,
     },
 };
 
@@ -115,8 +115,18 @@ impl HttpClient {
     }
 
     /// Send a DELETE request.
-    pub async fn delete(&self, path: impl AsRef<str>) -> KahoResult {
-        let response = self.client.delete(self.make_url(path)).send().await?;
+    pub async fn delete<T: Serialize>(
+        &self,
+        path: impl AsRef<str>,
+        payload: Option<T>,
+    ) -> KahoResult {
+        let mut request = self.client.delete(self.make_url(path));
+
+        if let Some(payload) = payload {
+            request = request.json(&payload);
+        }
+
+        let response = request.send().await?;
 
         if !response.status().is_success() {
             return Err(KahoError::FailedRequest(response));
@@ -127,14 +137,14 @@ impl HttpClient {
 
     // Bot-related methods
     /// Get a public bot.
-    pub async fn get_public_bot(&self, bot_id: &str) -> KahoResult<PublicBot> {
+    pub async fn fetch_public_bot(&self, bot_id: &str) -> KahoResult<PublicBot> {
         self.get(Endpoint::BotInvite(bot_id.to_string()).path())
             .await
     }
 
     // User-related methods
     /// Get properties of the bot user.
-    pub async fn get_self(&self) -> KahoResult<User> {
+    pub async fn fetch_self(&self) -> KahoResult<User> {
         self.get(Endpoint::User("@me".to_string()).path()).await
     }
 
@@ -149,17 +159,43 @@ impl HttpClient {
     }
 
     /// Get properties of the targeted user.
-    pub async fn get_user(&self, user_id: &str) -> KahoResult<User> {
+    pub async fn fetch_user(&self, user_id: &str) -> KahoResult<User> {
         self.get(Endpoint::User(user_id.to_string()).path()).await
     }
 
     /// Get the flags of the targeted user.
-    pub async fn get_user_flags(&self, user_id: &str) -> KahoResult<FlagResponse> {
+    pub async fn fetch_user_flags(&self, user_id: &str) -> KahoResult<FlagResponse> {
         self.get(Endpoint::UserFlags(user_id.to_string()).path())
             .await
     }
 
     // Message-related methods
+    /// Acknowledge a message in the specified channel.
+    pub async fn acknowledge_message(&self, channel_id: &str, message_id: &str) -> KahoResult {
+        self.put(
+            Endpoint::ChannelMessageAck(channel_id.to_string(), message_id.to_string()).path(),
+            (),
+        )
+        .await
+    }
+
+    /// Fetch messages in the specified channel.
+    pub async fn fetch_messages(
+        &self,
+        channel_id: &str,
+        query: impl Into<Option<FetchMessageQuery>>,
+    ) -> KahoResult<Vec<Message>> {
+        let mut path = Endpoint::ChannelMessages(channel_id.to_string()).path();
+
+        if let Some(q) = query.into() {
+            let encoded_query = serde_urlencoded::to_string(&q).unwrap();
+            path.push('?');
+            path.push_str(&encoded_query);
+        }
+
+        self.get(path).await
+    }
+
     /// Send a message in the specified channel.
     pub async fn send_message(
         &self,
@@ -169,6 +205,52 @@ impl HttpClient {
         self.post(
             Endpoint::ChannelMessages(channel_id.to_string()).path(),
             payload.into(),
+        )
+        .await
+    }
+
+    /// Search for messages in the specified channel matching the query.
+    pub async fn search_messages(
+        &self,
+        channel_id: &str,
+        payload: impl Into<MessageSearch>,
+    ) -> KahoResult<Vec<Message>> {
+        self.post(
+            Endpoint::ChannelMessageSearch(channel_id.to_string()).path(),
+            payload.into(),
+        )
+        .await
+    }
+
+    /// Pin a message in the specified channel.
+    pub async fn pin_message(&self, channel_id: &str, message_id: &str) -> KahoResult {
+        self.post(
+            Endpoint::ChannelMessagePin(channel_id.to_string(), message_id.to_string()).path(),
+            (),
+        )
+        .await
+    }
+
+    /// Unpin a message in the specified channel.
+    pub async fn unpin_message(&self, channel_id: &str, message_id: &str) -> KahoResult {
+        self.delete(
+            Endpoint::ChannelMessagePin(channel_id.to_string(), message_id.to_string()).path(),
+            None::<()>,
+        )
+        .await
+    }
+
+    /// Fetch a message in the specified channel.
+    pub async fn fetch_message(&self, channel_id: &str, message_id: &str) -> KahoResult<Message> {
+        self.get(Endpoint::ChannelMessage(channel_id.to_string(), message_id.to_string()).path())
+            .await
+    }
+
+    /// Delete a message in the specified channel.
+    pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> KahoResult {
+        self.delete(
+            Endpoint::ChannelMessage(channel_id.to_string(), message_id.to_string()).path(),
+            None::<()>,
         )
         .await
     }
@@ -183,6 +265,21 @@ impl HttpClient {
         self.patch(
             Endpoint::ChannelMessage(channel_id.to_string(), message_id.to_string()).path(),
             payload.into(),
+        )
+        .await
+    }
+
+    /// Bulk delete messages in the specified channel.
+    pub async fn bulk_delete_messages(
+        &self,
+        channel_id: &str,
+        message_ids: Vec<String>,
+    ) -> KahoResult {
+        let payload = serde_json::json!({ "ids": message_ids });
+
+        self.post(
+            Endpoint::ChannelMessageBulk(channel_id.to_string()).path(),
+            payload,
         )
         .await
     }
