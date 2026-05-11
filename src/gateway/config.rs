@@ -5,13 +5,13 @@ use crate::error::KahoError;
 /// Configuration used to connect and maintain the gateway WebSocket.
 #[derive(Clone, Debug)]
 pub struct GatewayConfig {
-    /// Interval between heartbeat ping events.
+    /// The heartbeat interval value associated with this gateway config.
     pub heartbeat_interval: Duration,
     /// Maximum number of reconnect attempts before the gateway gives up.
     pub max_reconnect_attempts: usize,
     /// Number of reconnect attempts made by the current connection loop.
     pub reconnect_attempts: usize,
-    /// Base delay between reconnect attempts.
+    /// The reconnect delay value associated with this gateway config.
     pub reconnect_delay: Duration,
     /// Bot token used for gateway authentication.
     pub token: String,
@@ -20,7 +20,7 @@ pub struct GatewayConfig {
 }
 
 impl GatewayConfig {
-    /// Create gateway configuration for a bot token.
+    /// Calls the Stoat API or client internals to new for this resource.
     pub fn new(token: impl Into<String>) -> Result<Self, KahoError> {
         let token = token.into();
 

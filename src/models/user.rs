@@ -4,45 +4,45 @@ use std::fmt;
 
 use crate::{
     http::HttpClient,
-    models::{Attachment, Id},
+    models::{Attachment, Channel, Id, SafetyReportCreate},
     KahoResult,
 };
 
-/// Represents a user.
+/// Represents an user value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct User {
-    /// The ID of the user.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The username.
+    /// The username displayed for the user or bot account.
     pub username: String,
-    /// The avatar of the user.
+    /// The avatar attachment or avatar reference associated with this resource.
     pub avatar: Option<Attachment>,
-    /// The discriminator of the user.
+    /// The discriminator value associated with this user.
     #[serde(default)]
     pub discriminator: String,
     /// The display name of the user.
     /// Replacement display name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// The status of the user.
+    /// The status value associated with this user.
     pub status: Option<UserStatus>,
-    /// Relationships associated with the user.
+    /// The relations value associated with this user.
     #[serde(default)]
     pub relations: Vec<UserRelationship>,
     /// Whether the user is online or not.
     #[serde(default)]
     pub online: bool,
-    /// The badges of the user.
+    /// The badges value associated with this user.
     #[serde(default)]
     pub badges: UserBadges,
-    /// The flags of the user.
+    /// The flags value associated with this user.
     #[serde(default)]
     pub flags: UserFlags,
 }
 
 impl User {
-    /// Edit this user.
+    /// Calls the Stoat API or client internals to edit for this resource.
     pub async fn edit(&self, http: &HttpClient, payload: impl Into<UserUpdate>) -> KahoResult<Self> {
         http.edit_user(&self.id, payload.into()).await
     }
@@ -59,7 +59,23 @@ impl User {
         .await
     }
 
-    /// Fetch this user's flags.
+
+
+    /// Open a direct message channel with this user.
+    pub async fn open_dm(&self, http: &HttpClient) -> KahoResult<Channel> {
+        http.open_direct_message(&self.id).await
+    }
+
+    /// Submit a safety report concerning this user.
+    pub async fn report(&self, http: &HttpClient, reason: impl Into<String>) -> KahoResult {
+        http.report_safety(SafetyReportCreate {
+            user: Some(self.id.clone()),
+            reason: Some(reason.into()),
+            ..Default::default()
+        }).await
+    }
+
+    /// Calls the Stoat API or client internals to flags for this resource.
     pub async fn flags(&self, http: &HttpClient) -> KahoResult<FlagResponse> {
         http.fetch_user_flags(&self.id).await
     }
@@ -69,7 +85,7 @@ impl User {
         http.fetch_default_avatar(&self.id).await
     }
 
-    /// Fetch this user's profile.
+    /// Calls the Stoat API or client internals to profile for this resource.
     pub async fn profile(&self, http: &HttpClient) -> KahoResult<UserProfile> {
         http.fetch_user_profile(&self.id).await
     }
@@ -89,40 +105,40 @@ impl User {
         http.remove_friend(&self.id).await
     }
 
-    /// Block this user.
+    /// Calls the Stoat API or client internals to block for this resource.
     pub async fn block(&self, http: &HttpClient) -> KahoResult<Self> {
         http.block_user(&self.id).await
     }
 
-    /// Unblock this user.
+    /// Calls the Stoat API or client internals to unblock for this resource.
     pub async fn unblock(&self, http: &HttpClient) -> KahoResult<Self> {
         http.unblock_user(&self.id).await
     }
 }
 
-/// User status text and presence.
+/// Represents an user status value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserStatus {
-    /// Custom status text.
+    /// The text value associated with this user status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Current presence string.
+    /// The presence value associated with this user status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence: Option<String>,
 }
 
-/// Known user presence states.
+/// Represents the supported presence variants returned by or sent to the Stoat API.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum Presence {
-    /// The user is online.
+    /// Represents the online variant for this public enum.
     Online,
-    /// The user is invisible.
+    /// Represents the invisible variant for this public enum.
     Invisible,
-    /// The user is focusing.
+    /// Represents the focus variant for this public enum.
     Focus,
-    /// The user is idle.
+    /// Represents the idle variant for this public enum.
     Idle,
-    /// The user is busy.
+    /// Represents the busy variant for this public enum.
     Busy,
 }
 
@@ -140,39 +156,39 @@ impl fmt::Display for Presence {
     }
 }
 
-/// Payload for updating a user.
+/// Represents an user update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct UserUpdate {
-    /// Replacement user status.
+    /// The status value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<UserStatus>,
-    /// Replacement profile data.
+    /// The profile value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<UserProfileUpdate>,
-    /// Replacement avatar attachment ID.
+    /// The avatar attachment or avatar reference associated with this resource.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
-    /// Replacement display name.
+    /// The display name value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// User field to remove.
+    /// The list of fields that should be removed from the resource during update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove: Option<UserFields>,
-    /// Replacement badge bitfield.
+    /// The badges value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub badges: Option<u32>,
-    /// Replacement user flag bitfield.
+    /// The flags value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<u32>,
 }
 
-/// Payload for updating a user profile.
+/// Represents an user profile update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct UserProfileUpdate {
-    /// Replacement profile content.
+    /// The textual content included in this message or payload.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    /// Replacement profile background attachment ID.
+    /// The background value associated with this user profile update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<Id>,
 }
@@ -180,30 +196,30 @@ pub struct UserProfileUpdate {
 /// Relationship state between the current user and another user.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserRelationship {
-    /// ID of the related user.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     #[serde(default)]
     pub id: Id,
-    /// Relationship status with that user.
+    /// The status value associated with this user relationship.
     #[serde(default)]
     pub status: RelationshipStatus,
 }
 
-/// Relationship state with another user.
+/// Represents the supported relationship status variants returned by or sent to the Stoat API.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub enum RelationshipStatus {
-    /// No relationship.
+    /// Represents the none variant for this public enum.
     #[default]
     None,
-    /// Regular user relationship.
+    /// Represents the user variant for this public enum.
     User,
-    /// Friend relationship.
+    /// Represents the friend variant for this public enum.
     Friend,
-    /// Outgoing friend request.
+    /// Represents the outgoing variant for this public enum.
     Outgoing,
-    /// Incoming friend request.
+    /// Represents the incoming variant for this public enum.
     Incoming,
-    /// The user is blocked.
+    /// Represents the blocked variant for this public enum.
     Blocked,
     /// The user has blocked the current user.
     BlockedOther,
@@ -230,22 +246,22 @@ impl CheckRelationship for Vec<UserRelationship> {
 /// User fields that can be removed or edited by update payloads.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum UserFields {
-    /// User avatar.
+    /// Represents the avatar variant for this public enum.
     Avatar,
-    /// Status text.
+    /// Represents the status text variant for this public enum.
     StatusText,
-    /// Status presence.
+    /// Represents the status presence variant for this public enum.
     StatusPresence,
-    /// Profile content.
+    /// Represents the profile content variant for this public enum.
     ProfileContent,
-    /// Profile background.
+    /// Represents the profile background variant for this public enum.
     ProfileBackground,
-    /// Display name.
+    /// Represents the display name variant for this public enum.
     DisplayName,
 }
 
 bitflags! {
-    /// Badge flags attached to a user.
+    /// Represents an user badges value used by the Stoat API models and endpoints.
     #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Default)]
     #[serde(transparent)]
     pub struct UserBadges: u32 {
@@ -264,7 +280,7 @@ bitflags! {
 }
 
 bitflags! {
-    /// Account flags attached to a user.
+    /// Represents an user flags value used by the Stoat API models and endpoints.
     #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, Default)]
     #[serde(transparent)]
     pub struct UserFlags: u32 {
@@ -275,7 +291,7 @@ bitflags! {
     }
 }
 
-/// Response containing a user flag bitfield.
+/// Represents a flag response value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FlagResponse {
     /// Raw user flags returned by the API.
@@ -285,26 +301,26 @@ pub struct FlagResponse {
 /// Mutual users and servers shared with another user.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MutualResponse {
-    /// Mutual user IDs.
+    /// The user IDs included in this response or request payload.
     pub users: Vec<String>,
-    /// Mutual server IDs.
+    /// The servers value associated with this mutual response.
     pub servers: Vec<String>,
-    /// Mutual group or DM channel IDs.
+    /// The channels value associated with this mutual response.
     #[serde(default)]
     pub channels: Vec<String>,
 }
 
-/// Public bot ownership information.
+/// Represents a bot information value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotInformation {
-    /// ID of the bot owner.
+    /// The ID of the user or account that owns this resource.
     pub owner: String,
 }
 
-/// Request payload for sending a friend request.
+/// Represents a send friend request value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct SendFriendRequest {
-    /// Username to send a friend request to.
+    /// The username displayed for the user or bot account.
     pub username: String,
 }
 
@@ -312,19 +328,19 @@ pub struct SendFriendRequest {
 /// Payload for changing the authenticated user's username.
 #[derive(Clone, Debug, Serialize)]
 pub struct ChangeUsername {
-    /// New username.
+    /// The username displayed for the user or bot account.
     pub username: String,
-    /// Current account password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
 }
 
 /// User profile returned by the profile endpoint.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserProfile {
-    /// Profile content / bio.
+    /// The textual content included in this message or payload.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    /// Profile background attachment.
+    /// The background value associated with this user profile.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<Attachment>,
 }
@@ -332,6 +348,6 @@ pub struct UserProfile {
 /// Default avatar image returned by the API.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DefaultAvatar {
-    /// Raw PNG image bytes.
+    /// The raw bytes for the image or binary payload being uploaded.
     pub bytes: Vec<u8>,
 }

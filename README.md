@@ -36,7 +36,7 @@ use tracing::{error, warn};
 async fn handle_event(event: GatewayEvent, client: Arc<KahoClient>) {
     match event {
         GatewayEvent::Ready => {
-            if let Ok(user) = client.http.get_self().await {
+            if let Ok(user) = client.http.fetch_self().await {
                 println!("{}#{} is Ready!", user.username, user.discriminator);
             }
         }

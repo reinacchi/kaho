@@ -5,7 +5,7 @@ use crate::{http::HttpClient, models::{Id, Server, Channel, User}, KahoResult};
 /// Invite object returned by invite endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Invite {
-    /// Invite code.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Server referenced by the invite, when present.
@@ -20,12 +20,12 @@ pub struct Invite {
 }
 
 impl Invite {
-    /// Accept this invite.
+    /// Calls the Stoat API or client internals to accept for this resource.
     pub async fn accept(&self, http: &HttpClient) -> KahoResult<InviteJoinResponse> {
         http.accept_invite(&self.id).await
     }
 
-    /// Delete this invite.
+    /// Calls the Stoat API or client internals to delete for this resource.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_invite(&self.id).await
     }

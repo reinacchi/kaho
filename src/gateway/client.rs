@@ -13,7 +13,7 @@ use crate::{
     models::{ClientEvent, GatewayEvent},
 };
 
-/// Stream-like receiver for gateway events.
+/// Represents a gateway event stream value used by the Stoat API models and endpoints.
 #[derive(Debug, Clone)]
 pub struct GatewayEventStream {
     receiver: Receiver<KahoResult<GatewayEvent>>,
@@ -32,7 +32,7 @@ impl GatewayEventStream {
 /// WebSocket gateway client responsible for sending and receiving gateway events.
 #[derive(Debug, Clone)]
 pub struct GatewayClient {
-    /// Gateway connection configuration.
+    /// The config value associated with this gateway client.
     pub config: GatewayConfig,
     /// Timestamps for the most recent heartbeat ping and pong.
     pub last_heartbeat: (Instant, Instant),

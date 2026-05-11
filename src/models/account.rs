@@ -5,110 +5,110 @@ use crate::{http::HttpClient, KahoResult};
 /// Account details returned by the account endpoint.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Account {
-    /// Account ID.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: String,
-    /// Account email.
+    /// The email address associated with the account operation.
     pub email: String,
 }
 
 impl Account {
-    /// Fetch the current account again.
+    /// Calls the Stoat API or client internals to fetch for this resource.
     pub async fn fetch(http: &HttpClient) -> KahoResult<Self> {
         http.fetch_account().await
     }
 
-    /// Change this account's password.
+    /// Calls the Stoat API or client internals to change password for this resource.
     pub async fn change_password(http: &HttpClient, payload: impl Into<AccountChangePassword>) -> KahoResult {
         http.change_password(payload).await
     }
 
-    /// Change this account's email.
+    /// Calls the Stoat API or client internals to change email for this resource.
     pub async fn change_email(http: &HttpClient, payload: impl Into<AccountChangeEmail>) -> KahoResult {
         http.change_email(payload).await
     }
 
-    /// Request deletion for this account.
+    /// Calls the Stoat API or client internals to request deletion for this resource.
     pub async fn request_deletion(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
         http.delete_account(payload).await
     }
 
-    /// Confirm deletion for this account.
+    /// Calls the Stoat API or client internals to confirm deletion for this resource.
     pub async fn confirm_deletion(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
         http.confirm_account_deletion(payload).await
     }
 
-    /// Disable this account.
+    /// Calls the Stoat API or client internals to disable for this resource.
     pub async fn disable(http: &HttpClient, payload: impl Into<AccountPasswordConfirmation>) -> KahoResult {
         http.disable_account(payload).await
     }
 }
 
-/// Payload for creating an account.
+/// Represents an account create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountCreate {
-    /// Email address.
+    /// The email address associated with the account operation.
     pub email: String,
-    /// Password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
-    /// Invite code, when required.
+    /// The invite code or invite identifier used by the operation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invite: Option<String>,
-    /// Captcha verification code, when required.
+    /// The captcha response used to satisfy verification requirements.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub captcha: Option<String>,
 }
 
-/// Payload for resending account verification.
+/// Represents an account resend verification value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountResendVerification {
-    /// Email address.
+    /// The email address associated with the account operation.
     pub email: String,
-    /// Captcha verification code, when required.
+    /// The captcha response used to satisfy verification requirements.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub captcha: Option<String>,
 }
 
-/// Payload for account actions confirmed by password.
+/// Represents an account password confirmation value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountPasswordConfirmation {
-    /// Current password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
 }
 
-/// Payload for changing an account password.
+/// Represents an account change password value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountChangePassword {
-    /// Current password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
-    /// New password.
+    /// The replacement password to set on the account.
     pub new_password: String,
 }
 
-/// Payload for changing an account email.
+/// Represents an account change email value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountChangeEmail {
-    /// New email address.
+    /// The email address associated with the account operation.
     pub email: String,
-    /// Current password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
 }
 
-/// Payload for requesting a password reset email.
+/// Represents an account send password reset value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountSendPasswordReset {
-    /// Email address.
+    /// The email address associated with the account operation.
     pub email: String,
-    /// Captcha verification code, when required.
+    /// The captcha response used to satisfy verification requirements.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub captcha: Option<String>,
 }
 
-/// Payload for completing a password reset.
+/// Represents an account password reset value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountPasswordReset {
-    /// Reset token.
+    /// The token used to authenticate or execute this API resource.
     pub token: String,
-    /// New password.
+    /// The password value supplied for account authentication or confirmation.
     pub password: String,
 }

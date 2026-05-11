@@ -14,7 +14,7 @@ use crate::{
 /// Represents a message in the Stoat platform.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Message {
-    /// The ID of the message.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Optional nonce supplied when the message was created.
@@ -23,12 +23,12 @@ pub struct Message {
     pub channel: Id,
     /// ID of the user that authored the message.
     pub author: String,
-    /// Text content of the message.
+    /// The textual content included in this message or payload.
     pub content: String,
-    /// Attachments included with the message.
+    /// The attachments included with this message or webhook payload.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
-    /// Embeds included with the message.
+    /// The embeds value associated with this message.
     #[serde(default)]
     pub embeds: Option<Vec<Embed>>,
     /// User IDs mentioned by the message.
@@ -60,13 +60,30 @@ impl Message {
         http.unpin_message(&self.channel, &self.id).await
     }
 
-    /// Edit this message.
+    /// Calls the Stoat API or client internals to edit for this resource.
     pub async fn edit(
         &self,
         http: &HttpClient,
         payload: impl Into<MessageEdit>,
     ) -> KahoResult<Self> {
         http.edit_message(&self.channel, &self.id, payload).await
+    }
+
+
+
+    /// Add a reaction to this message.
+    pub async fn react(&self, http: &HttpClient, emoji: &str) -> KahoResult {
+        http.add_reaction(&self.channel, &self.id, emoji).await
+    }
+
+    /// Remove this client's reaction from this message.
+    pub async fn remove_reaction(&self, http: &HttpClient, emoji: &str) -> KahoResult {
+        http.remove_reaction(&self.channel, &self.id, emoji).await
+    }
+
+    /// Calls the Stoat API or client internals to clear reactions for this resource.
+    pub async fn clear_reactions(&self, http: &HttpClient) -> KahoResult {
+        http.clear_reactions(&self.channel, &self.id).await
     }
 
     /// Reply to the message corresponding to this instance.
@@ -86,22 +103,22 @@ impl Message {
 pub struct MessageSend {
     /// Text content of the outgoing message.
     pub content: String,
-    /// Attachment IDs to include.
+    /// The attachments included with this message or webhook payload.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Id>,
-    /// Embeds to include.
+    /// The embeds value associated with this message send.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub embeds: Vec<EmbedCreate>,
-    /// Optional message flags.
+    /// The flags value associated with this message send.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<MessageFlags>,
-    /// Allowed message interactions.
+    /// The interactions value associated with this message send.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub interactions: Vec<MessageInteractions>,
-    /// Optional display masquerade.
+    /// The masquerade value associated with this message send.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub masquerade: Option<MessageMasquerade>,
-    /// Messages this message replies to.
+    /// The replies value associated with this message send.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replies: Vec<MessageReplyIntent>,
 }
@@ -116,21 +133,25 @@ bitflags! {
     }
 }
 
-/// Message display masquerade information.
+/// Represents a message masquerade value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MessageMasquerade {
     /// Avatar URL to display for the masquerade.
     pub avatar: Option<String>,
-    /// Display colour for the masquerade.
+    /// The role or embed colour value encoded as an API integer.
     pub colour: Option<String>,
-    /// Display name for the masquerade.
+    /// The display name or configured name for this resource.
     pub name: String,
 }
+/// Represents the supported search message sort variants returned by or sent to the Stoat API.
 
 #[derive(Clone, Debug, Serialize)]
 pub enum SearchMessageSort {
+    /// Represents the relevance variant for this public enum.
     Relevance,
+    /// Represents the newest variant for this public enum.
     Newest,
+    /// Represents the oldest variant for this public enum.
     Oldest,
 }
 
@@ -143,6 +164,7 @@ impl std::fmt::Display for SearchMessageSort {
         }
     }
 }
+/// Represents a fetch message query value used by the Stoat API models and endpoints.
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FetchMessageQuery {
@@ -162,6 +184,7 @@ pub struct FetchMessageQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort: Option<SearchMessageSort>,
 }
+/// Represents a message search value used by the Stoat API models and endpoints.
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageSearch {
@@ -185,7 +208,7 @@ pub struct MessageSearch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
 
-    /// The search query string.
+    /// The query value associated with this message search.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
 
@@ -194,7 +217,7 @@ pub struct MessageSearch {
     pub sort: Option<SearchMessageSort>,
 }
 
-/// Describes a message reply target.
+/// Represents a message reply intent value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageReplyIntent {
     /// Whether sending should fail when the replied-to message does not exist.
@@ -205,7 +228,7 @@ pub struct MessageReplyIntent {
     pub mention: bool,
 }
 
-/// Controls allowed interactions for a message.
+/// Represents a message interactions value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageInteractions {
     /// Reaction IDs allowed on the message.
@@ -231,10 +254,10 @@ impl<T: Into<String>> From<T> for MessageSend {
 /// Represents a request to edit an existing message.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct MessageEdit {
-    /// Replacement message content.
+    /// The textual content included in this message or payload.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    /// Replacement embeds.
+    /// The embeds value associated with this message edit.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub embeds: Vec<EmbedCreate>,
 }

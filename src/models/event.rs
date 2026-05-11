@@ -35,7 +35,7 @@ pub enum ClientEvent {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum GatewayEvent {
-    /// The gateway accepted authentication.
+    /// Represents the authenticated variant for this public enum.
     Authenticated,
     /// The gateway returned an authentication or protocol error.
     Error {
@@ -44,15 +44,15 @@ pub enum GatewayEvent {
     },
     /// Heartbeat pong received from the gateway.
     Pong,
-    /// Initial ready event after connecting.
+    /// Represents the ready variant for this public enum.
     Ready,
-    /// A message was created.
+    /// Represents the message variant for this public enum.
     Message(Message),
-    /// A server was created or became available.
+    /// Represents the server create variant for this public enum.
     ServerCreate(Server),
-    /// A user started typing in a channel.
+    /// Represents the channel start typing variant for this public enum.
     ChannelStartTyping,
-    /// A user stopped typing in a channel.
+    /// Represents the channel stop typing variant for this public enum.
     ChannelStopTyping,
     /// Any gateway event not yet modelled by Kaho.
     #[serde(other)]

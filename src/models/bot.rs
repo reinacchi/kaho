@@ -12,11 +12,11 @@ pub struct PublicBot {
     /// The ID of the bot user.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The bot username.
+    /// The username displayed for the user or bot account.
     pub username: String,
     /// The bot avatar attachment, when present.
     pub avatar: Option<Attachment>,
-    /// Public bot description.
+    /// The human-readable description attached to this resource.
     pub description: Option<String>,
 }
 
@@ -30,12 +30,12 @@ impl PublicBot {
 /// Full bot object returned by authenticated bot management endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Bot {
-    /// The bot ID.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// Owner account ID.
+    /// The ID of the user or account that owns this resource.
     pub owner: Id,
-    /// Bot token.
+    /// The token used to authenticate or execute this API resource.
     pub token: String,
     /// Whether this bot can be invited by other users.
     #[serde(rename = "public")]
@@ -43,7 +43,7 @@ pub struct Bot {
     /// Whether analytics are enabled for this bot.
     #[serde(default)]
     pub analytics: bool,
-    /// Discoverability metadata.
+    /// The discoverable value associated with this bot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<BotDiscoverable>,
 }
@@ -54,12 +54,12 @@ impl Bot {
         http.fetch_bot(&self.id).await
     }
 
-    /// Edit this bot.
+    /// Calls the Stoat API or client internals to edit for this resource.
     pub async fn edit(&self, http: &HttpClient, payload: impl Into<BotUpdate>) -> KahoResult<Self> {
         http.edit_bot(&self.id, payload.into()).await
     }
 
-    /// Delete this bot.
+    /// Calls the Stoat API or client internals to delete for this resource.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_bot(&self.id).await
     }
@@ -70,20 +70,20 @@ impl Bot {
     }
 }
 
-/// Discoverability metadata attached to a bot.
+/// Represents a bot discoverable value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotDiscoverable {
-    /// Bot description.
+    /// The human-readable description attached to this resource.
     pub description: String,
-    /// Search tags for the bot.
+    /// The tags value associated with this bot discoverable.
     #[serde(default)]
     pub tags: Vec<String>,
 }
 
-/// Payload for creating a bot.
+/// Represents a bot create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct BotCreate {
-    /// Bot username.
+    /// The display name or configured name for this resource.
     pub name: String,
 }
 
@@ -102,26 +102,26 @@ impl From<&str> for BotCreate {
 /// Response returned when creating a bot.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotCreateResponse {
-    /// Created bot user.
+    /// The ID of the user associated with this resource.
     pub user: User,
-    /// Created bot metadata.
+    /// The bot value associated with this bot create response.
     #[serde(flatten)]
     pub bot: Bot,
 }
 
-/// Payload for editing a bot.
+/// Represents a bot update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct BotUpdate {
-    /// Replacement bot name.
+    /// The display name or configured name for this resource.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Whether the bot is public.
+    /// The public bot value associated with this bot update.
     #[serde(rename = "public", skip_serializing_if = "Option::is_none")]
     pub public_bot: Option<bool>,
-    /// Whether analytics are enabled.
+    /// The analytics value associated with this bot update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<bool>,
-    /// Discoverability settings.
+    /// The discoverable value associated with this bot update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<BotDiscoverable>,
     /// Fields to remove from the bot.
@@ -132,20 +132,20 @@ pub struct BotUpdate {
 /// Bot fields that can be removed by an update.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum BotFields {
-    /// Remove discoverability metadata.
+    /// Represents the discoverable variant for this public enum.
     Discoverable,
 }
 
 /// Payload for inviting a bot to a server.
 #[derive(Clone, Debug, Serialize)]
 pub struct BotInvite {
-    /// Target server ID.
+    /// The ID of the server associated with this resource.
     pub server: Id,
 }
 
 /// Response returned when a bot invite is accepted.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotInviteResponse {
-    /// Server ID the bot joined.
+    /// The ID of the server associated with this resource.
     pub server: Id,
 }

@@ -10,7 +10,7 @@ pub struct HttpConfig {
 }
 
 impl HttpConfig {
-    /// Create HTTP configuration for a bot token.
+    /// Calls the Stoat API or client internals to new for this resource.
     pub fn new(token: impl Into<String>) -> Result<Self, KahoError> {
         let token = token.into();
         if token.is_empty() {

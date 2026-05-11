@@ -1,3 +1,4 @@
+/// Re-exports all public Stoat API model types from their modules.
 pub use {
     account::*,
     attachment::*,
@@ -8,6 +9,10 @@ pub use {
     event::*,
     member::*,
     message::*,
+    webhook::*,
+    sync::*,
+    misc::*,
+    mfa::*,
     invite::*,
     permission::*,
     server::*,
@@ -23,10 +28,14 @@ mod emoji;
 mod event;
 mod member;
 mod message;
+mod webhook;
+mod sync;
+mod misc;
+mod mfa;
 mod invite;
 mod permission;
 mod server;
 mod user;
 
-/// Unique Stoat object identifier.
+/// Convenience type alias for ID values used throughout the Kaho crate.
 pub type Id = String;

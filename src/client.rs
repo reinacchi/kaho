@@ -33,20 +33,20 @@ impl CachedGatewayEventStream {
     }
 }
 
-/// Represents the main Kaho client.
+/// Represents a kaho client value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug)]
 pub struct KahoClient {
-    /// The HTTP client.
+    /// The http value associated with this kaho client.
     pub http: HttpClient,
-    /// The gateway client.
+    /// The gateway value associated with this kaho client.
     pub gateway: GatewayClient,
-    /// Shared in-memory model cache.
+    /// The cache value associated with this kaho client.
     #[cfg(feature = "cache")]
     pub cache: Cache,
 }
 
 impl KahoClient {
-    /// Create a new client instance.
+    /// Calls the Stoat API or client internals to new for this resource.
     pub fn new(http: HttpClient, gateway: GatewayClient) -> Self {
         KahoClient {
             http,
@@ -84,18 +84,18 @@ impl Default for KahoClientBuilder {
 }
 
 impl KahoClientBuilder {
-    /// Create a new builder.
+    /// Calls the Stoat API or client internals to new for this resource.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The bot token.
+    /// Calls the Stoat API or client internals to token for this resource.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
         self
     }
 
-    /// Build a Kaho client.
+    /// Calls the Stoat API or client internals to build for this resource.
     pub fn build(self) -> KahoResult<KahoClient> {
         let token = self
             .token

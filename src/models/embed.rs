@@ -5,15 +5,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum Embed {
-    /// Website metadata embed.
+    /// Represents the website variant for this public enum.
     Website(WebsiteMetadata),
-    /// Image embed.
+    /// Represents the image variant for this public enum.
     Image(Image),
-    /// Video embed.
+    /// Represents the video variant for this public enum.
     Video(Video),
-    /// Text embed.
+    /// Represents the text variant for this public enum.
     Text(Text),
-    /// Empty embed placeholder.
+    /// Represents the none variant for this public enum.
     None,
 }
 
@@ -26,33 +26,33 @@ pub struct EmbedCreate {
     /// URL attached to the embed title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Embed title.
+    /// The title value associated with this embed create.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Embed description.
+    /// The human-readable description attached to this resource.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Attachment ID or media reference for the embed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<String>,
-    /// Embed accent colour.
+    /// The role or embed colour value encoded as an API integer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
 }
 
-/// The image embed.
+/// Represents an image value used by the Stoat API models and endpoints.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Image {
-    /// URL to the original image
+    /// The URL value associated with this image.
     pub url: String,
 
-    /// Width of the image
+    /// The width value associated with this image.
     pub width: isize,
 
-    /// Height of the image
+    /// The height value associated with this image.
     pub height: isize,
 
-    /// Positioning and size
+    /// The size value associated with this image.
     pub size: ImageSize,
 }
 
@@ -66,38 +66,38 @@ pub enum ImageSize {
     Preview,
 }
 
-/// The video embed.
+/// Represents a video value used by the Stoat API models and endpoints.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Video {
-    /// URL to the original video
+    /// The URL value associated with this video.
     pub url: String,
 
-    /// Width of the video
+    /// The width value associated with this video.
     pub width: isize,
 
-    /// Height of the video
+    /// The height value associated with this video.
     pub height: isize,
 }
 
-/// The text embed.
+/// Represents a text value used by the Stoat API models and endpoints.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Text {
-    /// URL to icon
+    /// The icon URL value associated with this text.
     pub icon_url: Option<String>,
 
-    /// URL for title
+    /// The URL value associated with this text.
     pub url: Option<String>,
 
-    /// Title of text embed
+    /// The title value associated with this text.
     pub title: Option<String>,
 
-    /// Description of text embed
+    /// The human-readable description attached to this resource.
     pub description: Option<String>,
 
-    /// ID of uploaded attachment
+    /// The media value associated with this text.
     pub media: Option<Attachment>,
 
-    /// CSS colour
+    /// The role or embed colour value encoded as an API integer.
     pub colour: Option<String>,
 }
 
@@ -105,7 +105,7 @@ pub struct Text {
 #[derive(Deserialize, Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum Special {
-    /// No remote content
+    /// Represents the none variant for this public enum.
     None,
 
     /// Content hint that this contains a GIF
@@ -113,7 +113,7 @@ pub enum Special {
     /// Use metadata to find video or image to play
     GIF,
 
-    /// YouTube video
+    /// Represents the you tube variant for this public enum.
     YouTube {
         /// YouTube video ID.
         id: String,
@@ -121,7 +121,7 @@ pub enum Special {
         timestamp: Option<String>,
     },
 
-    /// Lightspeed.tv stream
+    /// Represents the lightspeed variant for this public enum.
     Lightspeed {
         /// Lightspeed content type.
         content_type: LightspeedType,
@@ -129,14 +129,14 @@ pub enum Special {
         id: String,
     },
 
-    /// Twitch stream or clip
+    /// Represents the twitch variant for this public enum.
     Twitch {
         /// Twitch content type.
         content_type: TwitchType,
         /// Twitch content ID.
         id: String,
     },
-    /// Spotify track
+    /// Represents the spotify variant for this public enum.
     Spotify {
         /// Spotify content type.
         content_type: String,
@@ -144,10 +144,10 @@ pub enum Special {
         id: String,
     },
 
-    /// Soundcloud track
+    /// Represents the soundcloud variant for this public enum.
     Soundcloud,
 
-    /// Bandcamp track
+    /// Represents the bandcamp variant for this public enum.
     Bandcamp {
         /// Bandcamp content type.
         content_type: BandcampType,
@@ -156,63 +156,63 @@ pub enum Special {
     },
 }
 
-/// Type of remote Twitch content
+/// Represents the supported twitch type variants returned by or sent to the Stoat API.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum TwitchType {
-    /// Twitch channel.
+    /// Represents the channel variant for this public enum.
     Channel,
-    /// Twitch video.
+    /// Represents the video variant for this public enum.
     Video,
-    /// Twitch clip.
+    /// Represents the clip variant for this public enum.
     Clip,
 }
 
-/// Type of remote Lightspeed.tv content
+/// Represents the supported lightspeed type variants returned by or sent to the Stoat API.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum LightspeedType {
-    /// Lightspeed channel.
+    /// Represents the channel variant for this public enum.
     Channel,
 }
 
-/// Type of remote Bandcamp content
+/// Represents the supported bandcamp type variants returned by or sent to the Stoat API.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub enum BandcampType {
-    /// Bandcamp album.
+    /// Represents the album variant for this public enum.
     Album,
-    /// Bandcamp track.
+    /// Represents the track variant for this public enum.
     Track,
 }
 
 /// Metadata for a website that can be embedded in a message.
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct WebsiteMetadata {
-    /// Direct URL to web page
+    /// The URL value associated with this website metadata.
     pub url: Option<String>,
 
-    /// Original direct URL
+    /// The original URL value associated with this website metadata.
     pub original_url: Option<String>,
 
-    /// Remote content
+    /// The special value associated with this website metadata.
     pub special: Option<Special>,
 
-    /// Title of website
+    /// The title value associated with this website metadata.
     pub title: Option<String>,
 
-    /// Description of website
+    /// The human-readable description attached to this resource.
     pub description: Option<String>,
 
-    /// Embedded image
+    /// The image value associated with this website metadata.
     pub image: Option<Image>,
 
-    /// Embedded video
+    /// The video value associated with this website metadata.
     pub video: Option<Video>,
 
-    /// Site name
+    /// The site name value associated with this website metadata.
     pub site_name: Option<String>,
 
-    /// URL to site icon
+    /// The icon URL value associated with this website metadata.
     pub icon_url: Option<String>,
 
-    /// CSS colour
+    /// The role or embed colour value encoded as an API integer.
     pub colour: Option<String>,
 }

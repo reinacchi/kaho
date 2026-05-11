@@ -12,7 +12,7 @@ pub type KahoResult<T = (), E = KahoError> = StdResult<T, E>;
 /// Top-level error type for all operations within the `kaho` crate.
 #[derive(Debug, Error)]
 pub enum KahoError {
-    /// Network or HTTP-related error via `reqwest`.
+    /// Represents the http variant for this public enum.
     #[error("HTTP error: {0}")]
     Http(#[from] ReqwestError),
 
@@ -24,7 +24,7 @@ pub enum KahoError {
     #[error("Request failed with non-success status: {0:?}")]
     FailedRequest(Response),
 
-    /// WebSocket-level error.
+    /// Represents the web socket variant for this public enum.
     #[error("WebSocket error: {0}")]
     WebSocket(#[from] WebSocketError),
 
@@ -32,7 +32,7 @@ pub enum KahoError {
     #[error("Authentication failure: {0}")]
     Auth(#[from] AuthError),
 
-    /// Any other unknown or uncategorized error.
+    /// Represents the other variant for this public enum.
     #[error("Unhandled error: {0}")]
     Other(String),
 }
@@ -40,7 +40,7 @@ pub enum KahoError {
 /// Authentication-specific errors encountered during login or token validation.
 #[derive(Debug, Error, Deserialize, Clone, Copy, PartialEq)]
 pub enum AuthError {
-    /// Generic fallback error.
+    /// Represents the label me variant for this public enum.
     #[error("Uncategorized authentication error")]
     LabelMe,
 
@@ -48,7 +48,7 @@ pub enum AuthError {
     #[error("Server encountered an internal error")]
     InternalError,
 
-    /// Provided token is invalid or expired.
+    /// Represents the invalid session variant for this public enum.
     #[error("Invalid session token")]
     InvalidSession,
 
@@ -56,7 +56,7 @@ pub enum AuthError {
     #[error("Invalid username")]
     OnboardingNotFinished,
 
-    /// Attempted to authenticate while already authenticated.
+    /// Represents the already authenticated variant for this public enum.
     #[error("Session already active")]
     AlreadyAuthenticated,
 }

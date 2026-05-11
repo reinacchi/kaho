@@ -7,32 +7,32 @@ use crate::models::Id;
 pub struct Attachment {
     /// MIME type of the file (e.g., image/png).
     pub content_type: String,
-    /// Original name of the file.
+    /// The filename value associated with this attachment.
     pub filename: String,
-    /// Unique identifier for the attachment.
+    /// The unique ID assigned to this resource by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Metadata describing the nature of the attachment.
     pub metadata: AttachmentMetadata,
-    /// File size in bytes.
+    /// The size value associated with this attachment.
     pub size: usize,
     /// Category tag used to classify the attachment.
     pub tag: AttachmentTag,
 }
 
-/// Logical category assigned to an attachment.
+/// Represents the supported attachment tag variants returned by or sent to the Stoat API.
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AttachmentTag {
-    /// Message attachments.
+    /// Represents the attachments variant for this public enum.
     Attachments,
-    /// User avatars.
+    /// Represents the avatars variant for this public enum.
     Avatars,
-    /// Profile or server banners.
+    /// Represents the banners variant for this public enum.
     Banners,
-    /// Profile backgrounds.
+    /// Represents the backgrounds variant for this public enum.
     Backgrounds,
-    /// Server or channel icons.
+    /// Represents the icons variant for this public enum.
     Icons,
 }
 
@@ -40,18 +40,18 @@ pub enum AttachmentTag {
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Serialize)]
 #[serde(tag = "type")]
 pub enum AttachmentMetadata {
-    /// An audio file.
+    /// Represents the audio variant for this public enum.
     Audio,
-    /// A generic file.
+    /// Represents the file variant for this public enum.
     File,
-    /// An image, with resolution details.
+    /// Represents the image variant for this public enum.
     Image {
         height: usize,
         width: usize,
     },
-    /// A plain text file.
+    /// Represents the text variant for this public enum.
     Text,
-    /// A video, with resolution details.
+    /// Represents the video variant for this public enum.
     Video {
         height: usize,
         width: usize,

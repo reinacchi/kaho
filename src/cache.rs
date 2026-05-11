@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::models::{Channel, GatewayEvent, Id, Message, Server, User};
 
-/// Shared, concurrent entity cache.
+/// Represents a cache value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default)]
 pub struct Cache {
     inner: Arc<RwLock<CacheInner>>,
@@ -24,12 +24,12 @@ struct CacheInner {
 }
 
 impl Cache {
-    /// Create an empty cache.
+    /// Calls the Stoat API or client internals to new for this resource.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Store entities carried by a gateway event.
+    /// Calls the Stoat API or client internals to update from event for this resource.
     pub async fn update_from_event(&self, event: &GatewayEvent) {
         let mut inner = self.inner.write().await;
 
@@ -65,7 +65,7 @@ impl Cache {
         self.inner.write().await.servers.insert(server.id.clone(), server)
     }
 
-    /// Fetch a cached server by ID.
+    /// Calls the Stoat API or client internals to server for this resource.
     pub async fn server(&self, id: impl AsRef<str>) -> Option<Server> {
         self.inner.read().await.servers.get(id.as_ref()).cloned()
     }
@@ -78,7 +78,7 @@ impl Cache {
         self.inner.write().await.channels.insert(id, channel)
     }
 
-    /// Fetch a cached channel by ID.
+    /// Calls the Stoat API or client internals to channel for this resource.
     pub async fn channel(&self, id: impl AsRef<str>) -> Option<Channel> {
         self.inner.read().await.channels.get(id.as_ref()).cloned()
     }
@@ -90,12 +90,12 @@ impl Cache {
         self.inner.write().await.messages.insert(message.id.clone(), message)
     }
 
-    /// Fetch a cached message by ID.
+    /// Calls the Stoat API or client internals to message for this resource.
     pub async fn message(&self, id: impl AsRef<str>) -> Option<Message> {
         self.inner.read().await.messages.get(id.as_ref()).cloned()
     }
 
-    /// Remove every cached entity.
+    /// Calls the Stoat API or client internals to clear for this resource.
     pub async fn clear(&self) {
         *self.inner.write().await = CacheInner::default();
     }
