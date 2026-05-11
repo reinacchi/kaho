@@ -1,14 +1,14 @@
 use {
     reqwest::{
         header::{HeaderMap, HeaderValue},
-        Client,
+        Client, Method, RequestBuilder, Response, StatusCode,
     },
     serde::{de::DeserializeOwned, ser::Serialize},
 };
 
 use crate::{
     error::{KahoError, KahoResult},
-    http::{endpoint::Endpoint, HttpConfig},
+    http::{endpoint::Endpoint, HttpConfig, RateLimitedResponse, RateLimiter},
     models::*,
 };
 
@@ -17,6 +17,7 @@ use crate::{
 pub struct HttpClient {
     client: Client,
     config: HttpConfig,
+    rate_limiter: std::sync::Arc<RateLimiter>,
 }
 
 impl HttpClient {
@@ -27,7 +28,11 @@ impl HttpClient {
 
         let client = Client::builder().default_headers(headers).build()?;
 
-        Ok(Self { client, config })
+        Ok(Self {
+            client,
+            config,
+            rate_limiter: std::sync::Arc::new(RateLimiter::default()),
+        })
     }
 
     fn make_url(&self, path: impl AsRef<str>) -> String {
@@ -38,26 +43,57 @@ impl HttpClient {
         )
     }
 
+    async fn send_rate_limited(
+        &self,
+        method: Method,
+        path: &str,
+        build_request: impl Fn() -> RequestBuilder,
+    ) -> KahoResult<Response> {
+        loop {
+            self.rate_limiter.wait(&method, path).await;
+
+            let response = build_request().send().await?;
+            self.rate_limiter
+                .update_from_headers(&method, path, response.headers())
+                .await;
+
+            if response.status() != StatusCode::TOO_MANY_REQUESTS {
+                if !response.status().is_success() {
+                    return Err(KahoError::FailedRequest(response));
+                }
+
+                return Ok(response);
+            }
+
+            let retry_after = response
+                .json::<RateLimitedResponse>()
+                .await
+                .map(|payload| payload.retry_after)
+                .unwrap_or(10_000);
+
+            self.rate_limiter
+                .update_retry_after(&method, path, retry_after)
+                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(retry_after)).await;
+        }
+    }
+
     /// Send a GET request and deserialize the JSON response.
     pub async fn get<T: DeserializeOwned>(&self, path: impl AsRef<str>) -> KahoResult<T> {
-        let response = self.client.get(self.make_url(path)).send().await?;
+        let path = path.as_ref();
+        let response = self
+            .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
+            .await?;
 
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
-
-        let payload = response.json().await?;
-
-        Ok(payload)
+        Ok(response.json().await?)
     }
 
     /// Send a GET request and return the raw response bytes.
     pub async fn get_bytes(&self, path: impl AsRef<str>) -> KahoResult<Vec<u8>> {
-        let response = self.client.get(self.make_url(path)).send().await?;
-
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
+        let path = path.as_ref();
+        let response = self
+            .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
+            .await?;
 
         Ok(response.bytes().await?.to_vec())
     }
@@ -68,66 +104,45 @@ impl HttpClient {
         path: impl AsRef<str>,
         payload: U,
     ) -> KahoResult<T> {
+        let path = path.as_ref();
         let response = self
-            .client
-            .post(self.make_url(path))
-            .json(&payload)
-            .send()
+            .send_rate_limited(Method::POST, path, || {
+                self.client.post(self.make_url(path)).json(&payload)
+            })
             .await?;
 
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
-
-        let payload = response.json().await?;
-
-        Ok(payload)
+        Ok(response.json().await?)
     }
 
     /// Send a POST request with a JSON payload and ignore the response body.
     pub async fn post_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
-        let response = self
-            .client
-            .post(self.make_url(path))
-            .json(&payload)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
+        let path = path.as_ref();
+        self.send_rate_limited(Method::POST, path, || {
+            self.client.post(self.make_url(path)).json(&payload)
+        })
+        .await?;
 
         Ok(())
     }
 
     /// Send a PATCH request with a JSON payload and ignore the response body.
     pub async fn patch_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
-        let response = self
-            .client
-            .patch(self.make_url(path))
-            .json(&payload)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
+        let path = path.as_ref();
+        self.send_rate_limited(Method::PATCH, path, || {
+            self.client.patch(self.make_url(path)).json(&payload)
+        })
+        .await?;
 
         Ok(())
     }
 
     /// Send a PUT request with a JSON payload.
     pub async fn put<T: Serialize>(&self, path: impl AsRef<str>, payload: T) -> KahoResult {
-        let response = self
-            .client
-            .put(self.make_url(path))
-            .json(&payload)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
+        let path = path.as_ref();
+        self.send_rate_limited(Method::PUT, path, || {
+            self.client.put(self.make_url(path)).json(&payload)
+        })
+        .await?;
 
         Ok(())
     }
@@ -138,20 +153,14 @@ impl HttpClient {
         path: impl AsRef<str>,
         payload: T,
     ) -> KahoResult<R> {
+        let path = path.as_ref();
         let response = self
-            .client
-            .put(self.make_url(path))
-            .json(&payload)
-            .send()
+            .send_rate_limited(Method::PUT, path, || {
+                self.client.put(self.make_url(path)).json(&payload)
+            })
             .await?;
 
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
-
-        let payload = response.json().await?;
-
-        Ok(payload)
+        Ok(response.json().await?)
     }
 
     /// Send a PATCH request with a JSON payload and deserialize the JSON response.
@@ -160,20 +169,14 @@ impl HttpClient {
         path: impl AsRef<str>,
         payload: T,
     ) -> KahoResult<R> {
+        let path = path.as_ref();
         let response = self
-            .client
-            .patch(self.make_url(path))
-            .json(&payload)
-            .send()
+            .send_rate_limited(Method::PATCH, path, || {
+                self.client.patch(self.make_url(path)).json(&payload)
+            })
             .await?;
 
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
-
-        let payload = response.json().await?;
-
-        Ok(payload)
+        Ok(response.json().await?)
     }
 
     /// Calls the Stoat API or client internals to delete for this resource.
@@ -182,17 +185,17 @@ impl HttpClient {
         path: impl AsRef<str>,
         payload: Option<T>,
     ) -> KahoResult {
-        let mut request = self.client.delete(self.make_url(path));
+        let path = path.as_ref();
+        self.send_rate_limited(Method::DELETE, path, || {
+            let mut request = self.client.delete(self.make_url(path));
 
-        if let Some(payload) = payload {
-            request = request.json(&payload);
-        }
+            if let Some(payload) = payload.as_ref() {
+                request = request.json(payload);
+            }
 
-        let response = request.send().await?;
-
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
+            request
+        })
+        .await?;
 
         Ok(())
     }
@@ -203,21 +206,20 @@ impl HttpClient {
         path: impl AsRef<str>,
         payload: Option<T>,
     ) -> KahoResult<R> {
-        let mut request = self.client.delete(self.make_url(path));
+        let path = path.as_ref();
+        let response = self
+            .send_rate_limited(Method::DELETE, path, || {
+                let mut request = self.client.delete(self.make_url(path));
 
-        if let Some(payload) = payload {
-            request = request.json(&payload);
-        }
+                if let Some(payload) = payload.as_ref() {
+                    request = request.json(payload);
+                }
 
-        let response = request.send().await?;
+                request
+            })
+            .await?;
 
-        if !response.status().is_success() {
-            return Err(KahoError::FailedRequest(response));
-        }
-
-        let payload = response.json().await?;
-
-        Ok(payload)
+        Ok(response.json().await?)
     }
 
     // Account-related methods
