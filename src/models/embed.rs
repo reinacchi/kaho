@@ -29,7 +29,7 @@ pub struct EmbedCreate {
     /// The title value associated with this embed create.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `EmbedCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Attachment ID or media reference for the embed.
@@ -91,7 +91,7 @@ pub struct Text {
     /// The title value associated with this text.
     pub title: Option<String>,
 
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `Text`.
     pub description: Option<String>,
 
     /// The media value associated with this text.
@@ -198,7 +198,7 @@ pub struct WebsiteMetadata {
     /// The title value associated with this website metadata.
     pub title: Option<String>,
 
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `WebsiteMetadata`.
     pub description: Option<String>,
 
     /// The image value associated with this website metadata.

@@ -16,7 +16,7 @@ pub struct PublicBot {
     pub username: String,
     /// The bot avatar attachment, when present.
     pub avatar: Option<Attachment>,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `PublicBot`.
     pub description: Option<String>,
 }
 
@@ -40,10 +40,10 @@ impl PublicBot {
 /// Full bot object returned by authenticated bot management endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Bot {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Bot` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The ID of the user or account that owns this resource.
+    /// The ID of the user or account that owns the `Bot`.
     pub owner: Id,
     /// The token used to authenticate or execute this API resource.
     pub token: String,
@@ -64,12 +64,12 @@ impl Bot {
         http.fetch_bot(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `Bot`.
     pub async fn edit(&self, http: &HttpClient, payload: impl Into<BotUpdate>) -> KahoResult<Self> {
         http.edit_bot(&self.id, payload.into()).await
     }
 
-    /// Calls the Stoat API or client internals to delete for this resource.
+    /// Delete the `Bot`.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_bot(&self.id).await
     }
@@ -93,7 +93,7 @@ impl Bot {
 /// Represents a bot discoverable value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotDiscoverable {
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `BotDiscoverable`.
     pub description: String,
     /// The tags value associated with this bot discoverable.
     #[serde(default)]
@@ -103,7 +103,7 @@ pub struct BotDiscoverable {
 /// Represents a bot create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Serialize)]
 pub struct BotCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `BotCreate`.
     pub name: String,
 }
 
@@ -124,7 +124,7 @@ impl From<&str> for BotCreate {
 /// Response returned when creating a bot.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotCreateResponse {
-    /// The ID of the user associated with this resource.
+    /// The ID of the user associated with the `BotCreateResponse`.
     pub user: User,
     /// The bot value associated with this bot create response.
     #[serde(flatten)]
@@ -134,7 +134,7 @@ pub struct BotCreateResponse {
 /// Represents a bot update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct BotUpdate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `BotUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The public bot value associated with this bot update.
@@ -161,13 +161,13 @@ pub enum BotFields {
 /// Payload for inviting a bot to a server.
 #[derive(Clone, Debug, Serialize)]
 pub struct BotInvite {
-    /// The ID of the server associated with this resource.
+    /// The ID of the server associated with the `BotInvite`.
     pub server: Id,
 }
 
 /// Response returned when a bot invite is accepted.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotInviteResponse {
-    /// The ID of the server associated with this resource.
+    /// The ID of the server associated with the `BotInviteResponse`.
     pub server: Id,
 }

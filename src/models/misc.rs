@@ -18,7 +18,7 @@ pub struct SafetyReportCreate {
     /// The textual content included in this message or payload.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Id>,
-    /// The ID of the user associated with this resource.
+    /// The ID of the user associated with the `SafetyReportCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<Id>,
     /// The reason value associated with this safety report create.
@@ -54,7 +54,7 @@ pub struct OnboardingComplete {
 /// Represents a direct message open value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DirectMessageOpen {
-    /// The ID of the channel associated with this resource.
+    /// The ID of the channel associated with the `DirectMessageOpen`.
     pub channel: Channel,
     /// The user IDs included in this response or request payload.
     #[serde(default)]

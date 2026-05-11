@@ -18,16 +18,16 @@ use crate::models::{Attachment, Id, ServerBan, User};
 /// Represents a member value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Member {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Member` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The ID of the server associated with this resource.
+    /// The ID of the server associated with the `Member`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server: Option<Id>,
     /// The nickname value associated with this member.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `Member`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Attachment>,
     /// Role IDs assigned to the member.
@@ -44,7 +44,7 @@ pub struct MemberUpdate {
     /// The nickname value associated with this member update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `MemberUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
     /// The role IDs or role objects associated with this server resource.

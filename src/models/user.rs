@@ -11,12 +11,12 @@ use crate::{
 /// Represents an user value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct User {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `User` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// The username displayed for the user or bot account.
     pub username: String,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `User`.
     pub avatar: Option<Attachment>,
     /// The discriminator value associated with this user.
     #[serde(default)]
@@ -42,7 +42,7 @@ pub struct User {
 }
 
 impl User {
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `User`.
     pub async fn edit(
         &self,
         http: &HttpClient,
@@ -83,7 +83,7 @@ impl User {
         .await
     }
 
-    /// Calls the Stoat API or client internals to flags for this resource.
+    /// Return the user's flags.
     pub async fn flags(&self, http: &HttpClient) -> KahoResult<FlagResponse> {
         http.fetch_user_flags(&self.id).await
     }
@@ -93,7 +93,7 @@ impl User {
         http.fetch_default_avatar(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to profile for this resource.
+    /// Fetch the user's profile.
     pub async fn profile(&self, http: &HttpClient) -> KahoResult<UserProfile> {
         http.fetch_user_profile(&self.id).await
     }
@@ -113,12 +113,12 @@ impl User {
         http.remove_friend(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to block for this resource.
+    /// Block this user.
     pub async fn block(&self, http: &HttpClient) -> KahoResult<Self> {
         http.block_user(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to unblock for this resource.
+    /// Unblock this user.
     pub async fn unblock(&self, http: &HttpClient) -> KahoResult<Self> {
         http.unblock_user(&self.id).await
     }
@@ -173,7 +173,7 @@ pub struct UserUpdate {
     /// The profile value associated with this user update.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<UserProfileUpdate>,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `UserUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
     /// The display name value associated with this user update.
@@ -204,7 +204,7 @@ pub struct UserProfileUpdate {
 /// Relationship state between the current user and another user.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct UserRelationship {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `UserRelationship` by the Stoat API.
     #[serde(rename = "_id")]
     #[serde(default)]
     pub id: Id,
@@ -321,7 +321,7 @@ pub struct MutualResponse {
 /// Represents a bot information value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BotInformation {
-    /// The ID of the user or account that owns this resource.
+    /// The ID of the user or account that owns the `BotInformation`.
     pub owner: String,
 }
 

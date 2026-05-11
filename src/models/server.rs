@@ -19,7 +19,7 @@ pub struct Role {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hoist: Option<bool>,
 
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `Role`.
     pub name: String,
 
     /// The permissions associated with the role.
@@ -57,7 +57,7 @@ pub enum ServerFields {
 pub struct Category {
     /// The channels value associated with this category.
     pub channels: Vec<Id>,
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Category` by the Stoat API.
     pub id: Id,
     /// The title value associated with this category.
     pub title: String,
@@ -114,7 +114,7 @@ pub struct Server {
     /// The default permissions for the server.
     pub default_permissions: Permission,
 
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `Server`.
     pub description: String,
 
     /// The discoverable value associated with this server.
@@ -124,7 +124,7 @@ pub struct Server {
     /// The flags associated with the server.
     pub flags: Option<ServerFlags>,
 
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Server` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
 
@@ -132,14 +132,14 @@ pub struct Server {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
 
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `Server`.
     pub name: String,
 
     /// Whether the server is NSFW (Not Safe For Work).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
 
-    /// The ID of the user or account that owns this resource.
+    /// The ID of the user or account that owns the `Server`.
     pub owner: Id,
 
     /// The roles associated with the server.
@@ -166,10 +166,10 @@ pub struct ServerBan {
 /// Represents a request to create a new server.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ServerCreate {
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `ServerCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `ServerCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Whether the server should be marked as NSFW.
@@ -189,7 +189,7 @@ pub struct ServerEdit {
     /// The categories value associated with this server edit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub categories: Option<Vec<Category>>,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `ServerEdit`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// The discoverable value associated with this server edit.
@@ -198,10 +198,10 @@ pub struct ServerEdit {
     /// The flags value associated with this server edit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<ServerFlags>,
-    /// The icon attachment or icon reference associated with this resource.
+    /// The icon attachment or icon reference associated with the `ServerEdit`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `ServerEdit`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// Field to remove from the server.
@@ -224,7 +224,7 @@ use crate::{
 /// Represents a role create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RoleCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `RoleCreate`.
     pub name: String,
     /// The ordering rank used when sorting roles or members.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -234,7 +234,7 @@ pub struct RoleCreate {
 /// Response returned by create-role endpoint.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RoleCreateResponse {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `RoleCreateResponse` by the Stoat API.
     pub id: Id,
     /// The role value associated with this role create response.
     pub role: Role,
@@ -243,7 +243,7 @@ pub struct RoleCreateResponse {
 /// Represents a role update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RoleUpdate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `RoleUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The role or embed colour value encoded as an API integer.
@@ -276,7 +276,7 @@ impl Server {
         http.fetch_server(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `Server`.
     pub async fn edit(
         &self,
         http: &HttpClient,
@@ -285,12 +285,12 @@ impl Server {
         http.edit_server(&self.id, payload).await
     }
 
-    /// Calls the Stoat API or client internals to delete for this resource.
+    /// Delete the `Server`.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_server(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to acknowledge for this resource.
+    /// Acknowledge the `Server`.
     pub async fn acknowledge(&self, http: &HttpClient) -> KahoResult {
         http.acknowledge_server(&self.id).await
     }
@@ -304,7 +304,7 @@ impl Server {
         http.create_server_channel(&self.id, payload).await
     }
 
-    /// Calls the Stoat API or client internals to members for this resource.
+    /// Fetch members for the `Server`.
     pub async fn members(
         &self,
         http: &HttpClient,
@@ -357,12 +357,12 @@ impl Server {
         http.unban_user(&self.id, user_id).await
     }
 
-    /// Calls the Stoat API or client internals to bans for this resource.
+    /// Fetch bans for the `Server`.
     pub async fn bans(&self, http: &HttpClient) -> KahoResult<ServerBans> {
         http.fetch_server_bans(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to invites for this resource.
+    /// Fetch invites for the `Server`.
     pub async fn invites(&self, http: &HttpClient) -> KahoResult<Vec<Invite>> {
         http.fetch_server_invites(&self.id).await
     }

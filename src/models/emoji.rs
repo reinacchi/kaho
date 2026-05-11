@@ -5,14 +5,14 @@ use crate::{http::HttpClient, models::Id, KahoResult};
 /// Represents an emoji value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Emoji {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Emoji` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Parent object that owns the emoji.
     pub parent: EmojiParent,
     /// The creator ID value associated with this emoji.
     pub creator_id: Id,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `Emoji`.
     pub name: String,
     /// The animated value associated with this emoji.
     pub animated: bool,
@@ -26,7 +26,7 @@ impl Emoji {
         http.fetch_emoji(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to delete for this resource.
+    /// Delete the `Emoji`.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_emoji(&self.id).await
     }
@@ -43,11 +43,11 @@ pub enum EmojiParent {
 /// Payload for creating a custom emoji from an Autumn upload ID.
 #[derive(Clone, Debug, Serialize)]
 pub struct EmojiCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `EmojiCreate`.
     pub name: String,
     /// The parent value associated with this emoji create.
     pub parent: EmojiParent,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `EmojiCreate` is marked as not safe for work.
     #[serde(default)]
     pub nsfw: bool,
 }

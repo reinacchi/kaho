@@ -9,7 +9,7 @@ use crate::{
 /// Invite object returned by invite endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Invite {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Invite` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Server referenced by the invite, when present.
@@ -24,12 +24,12 @@ pub struct Invite {
 }
 
 impl Invite {
-    /// Calls the Stoat API or client internals to accept for this resource.
+    /// Accept the `Invite`.
     pub async fn accept(&self, http: &HttpClient) -> KahoResult<InviteJoinResponse> {
         http.accept_invite(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to delete for this resource.
+    /// Delete the `Invite`.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_invite(&self.id).await
     }

@@ -20,7 +20,7 @@ pub struct GatewayConfig {
 }
 
 impl GatewayConfig {
-    /// Calls the Stoat API or client internals to new for this resource.
+    /// Create a new instance.
     pub fn new(token: impl Into<String>) -> Result<Self, KahoError> {
         let token = token.into();
 

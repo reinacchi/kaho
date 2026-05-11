@@ -40,15 +40,15 @@ pub enum ChannelFields {
 /// Represents a request to create a new channel in a server.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ChannelCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `ChannelCreate`.
     pub name: String,
     /// The channel type value associated with this channel create.
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `ChannelCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `ChannelCreate` is marked as not safe for work.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
 }
@@ -56,12 +56,12 @@ pub struct ChannelCreate {
 /// Represents a request to create a group channel.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct GroupCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `GroupCreate`.
     pub name: String,
     /// The user IDs included in this response or request payload.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub users: Vec<Id>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `GroupCreate` is marked as not safe for work.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
 }
@@ -87,19 +87,19 @@ pub struct ChannelUpdate {
     /// Whether this channel is archived and hidden from normal active use.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `ChannelUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The icon attachment or icon reference associated with this resource.
+    /// The icon attachment or icon reference associated with the `ChannelUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Id>,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `ChannelUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `ChannelUpdate` is marked as not safe for work.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
-    /// The ID of the user or account that owns this resource.
+    /// The ID of the user or account that owns the `ChannelUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<Id>,
     /// The list of fields that should be removed from the resource during update.
@@ -118,10 +118,10 @@ pub struct ChannelCloseQuery {
 /// Represents a saved messages channel value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct SavedMessagesChannel {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `SavedMessagesChannel` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The ID of the user associated with this resource.
+    /// The ID of the user associated with the `SavedMessagesChannel`.
     pub user: Id,
     /// The ID of the most recent message known for this channel.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,7 +133,7 @@ pub struct SavedMessagesChannel {
 pub struct DirectMessageChannel {
     /// Whether this channel or resource is currently active.
     pub active: bool,
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `DirectMessageChannel` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// The ID of the most recent message known for this channel.
@@ -145,26 +145,26 @@ pub struct DirectMessageChannel {
 /// Represents a group channel value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GroupChannel {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `GroupChannel` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `GroupChannel`.
     pub name: String,
-    /// The ID of the user or account that owns this resource.
+    /// The ID of the user or account that owns the `GroupChannel`.
     pub owner: Id,
     /// The user IDs that participate in this group or direct message channel.
     #[serde(default)]
     pub recipients: Vec<Id>,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `GroupChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The icon attachment or icon reference associated with this resource.
+    /// The icon attachment or icon reference associated with the `GroupChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
     /// The ID of the most recent message known for this channel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_message_id: Option<Id>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `GroupChannel` is marked as not safe for work.
     #[serde(default)]
     pub nsfw: bool,
     /// Additional unmodeled API fields preserved for forward compatibility.
@@ -175,23 +175,23 @@ pub struct GroupChannel {
 /// Represents a text channel value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TextChannel {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `TextChannel` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The ID of the server associated with this resource.
+    /// The ID of the server associated with the `TextChannel`.
     pub server: Id,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `TextChannel`.
     pub name: String,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `TextChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The icon attachment or icon reference associated with this resource.
+    /// The icon attachment or icon reference associated with the `TextChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
     /// The ID of the most recent message known for this channel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_message_id: Option<Id>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `TextChannel` is marked as not safe for work.
     #[serde(default)]
     pub nsfw: bool,
     /// Additional unmodeled API fields preserved for forward compatibility.
@@ -202,20 +202,20 @@ pub struct TextChannel {
 /// Represents a voice channel value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct VoiceChannel {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `VoiceChannel` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The ID of the server associated with this resource.
+    /// The ID of the server associated with the `VoiceChannel`.
     pub server: Id,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `VoiceChannel`.
     pub name: String,
-    /// The human-readable description attached to this resource.
+    /// The human-readable description attached to the `VoiceChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The icon attachment or icon reference associated with this resource.
+    /// The icon attachment or icon reference associated with the `VoiceChannel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<Attachment>,
-    /// Whether this resource is marked as not safe for work.
+    /// Whether the `VoiceChannel` is marked as not safe for work.
     #[serde(default)]
     pub nsfw: bool,
     /// Additional unmodeled API fields preserved for forward compatibility.
@@ -232,7 +232,7 @@ pub struct JoinCallResponse {
 }
 
 impl Channel {
-    /// Calls the Stoat API or client internals to ID for this resource.
+    /// Return the `Channel` ID.
     pub fn id(&self) -> &str {
         match self {
             Channel::SavedMessages(channel) => &channel.id,
@@ -248,7 +248,7 @@ impl Channel {
         http.fetch_channel(self.id()).await
     }
 
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `Channel`.
     pub async fn edit(
         &self,
         http: &HttpClient,
@@ -297,7 +297,7 @@ impl Channel {
         http.acknowledge_message(self.id(), message_id).await
     }
 
-    /// Calls the Stoat API or client internals to messages for this resource.
+    /// Fetch messages for the `Channel`.
     pub async fn messages(
         &self,
         http: &HttpClient,
@@ -315,7 +315,7 @@ impl Channel {
         http.send_message(self.id(), payload).await
     }
 
-    /// Calls the Stoat API or client internals to search messages for this resource.
+    /// Search messages in the `Channel`.
     pub async fn search_messages(
         &self,
         http: &HttpClient,

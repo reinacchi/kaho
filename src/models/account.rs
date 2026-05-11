@@ -5,7 +5,7 @@ use crate::{http::HttpClient, KahoResult};
 /// Account details returned by the account endpoint.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Account {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Account` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: String,
     /// The email address associated with the account operation.
@@ -13,12 +13,12 @@ pub struct Account {
 }
 
 impl Account {
-    /// Calls the Stoat API or client internals to fetch for this resource.
+    /// Fetch the `Account`.
     pub async fn fetch(http: &HttpClient) -> KahoResult<Self> {
         http.fetch_account().await
     }
 
-    /// Calls the Stoat API or client internals to change password for this resource.
+    /// Change the account password.
     pub async fn change_password(
         http: &HttpClient,
         payload: impl Into<AccountChangePassword>,
@@ -26,7 +26,7 @@ impl Account {
         http.change_password(payload).await
     }
 
-    /// Calls the Stoat API or client internals to change email for this resource.
+    /// Change the account email address.
     pub async fn change_email(
         http: &HttpClient,
         payload: impl Into<AccountChangeEmail>,
@@ -34,7 +34,7 @@ impl Account {
         http.change_email(payload).await
     }
 
-    /// Calls the Stoat API or client internals to request deletion for this resource.
+    /// Request account deletion.
     pub async fn request_deletion(
         http: &HttpClient,
         payload: impl Into<AccountPasswordConfirmation>,
@@ -42,7 +42,7 @@ impl Account {
         http.delete_account(payload).await
     }
 
-    /// Calls the Stoat API or client internals to confirm deletion for this resource.
+    /// Confirm deletion.
     pub async fn confirm_deletion(
         http: &HttpClient,
         payload: impl Into<AccountPasswordConfirmation>,
@@ -50,7 +50,7 @@ impl Account {
         http.confirm_account_deletion(payload).await
     }
 
-    /// Calls the Stoat API or client internals to disable for this resource.
+    /// Disable the `Account`.
     pub async fn disable(
         http: &HttpClient,
         payload: impl Into<AccountPasswordConfirmation>,

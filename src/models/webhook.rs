@@ -6,16 +6,16 @@ use crate::models::{Attachment, Id};
 /// Represents a webhook value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Webhook {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Webhook` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `Webhook`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `Webhook`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Attachment>,
-    /// The ID of the channel associated with this resource.
+    /// The ID of the channel associated with the `Webhook`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<Id>,
     /// The token used to authenticate or execute this API resource.
@@ -29,9 +29,9 @@ pub struct Webhook {
 /// Represents a webhook create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct WebhookCreate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `WebhookCreate`.
     pub name: String,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `WebhookCreate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
 }
@@ -39,10 +39,10 @@ pub struct WebhookCreate {
 /// Represents a webhook update value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct WebhookUpdate {
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `WebhookUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The avatar attachment or avatar reference associated with this resource.
+    /// The avatar attachment or avatar reference associated with the `WebhookUpdate`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Id>,
     /// The list of fields that should be removed from the resource during update.
@@ -85,7 +85,7 @@ impl Webhook {
         http.fetch_webhook(&self.id).await
     }
 
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `Webhook`.
     pub async fn edit(
         &self,
         http: &HttpClient,
@@ -94,7 +94,7 @@ impl Webhook {
         http.edit_webhook(&self.id, payload).await
     }
 
-    /// Calls the Stoat API or client internals to delete for this resource.
+    /// Delete the `Webhook`.
     pub async fn delete(&self, http: &HttpClient) -> KahoResult {
         http.delete_webhook(&self.id).await
     }

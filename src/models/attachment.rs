@@ -9,7 +9,7 @@ pub struct Attachment {
     pub content_type: String,
     /// The filename value associated with this attachment.
     pub filename: String,
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Attachment` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Metadata describing the nature of the attachment.

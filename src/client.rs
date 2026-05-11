@@ -46,7 +46,7 @@ pub struct KahoClient {
 }
 
 impl KahoClient {
-    /// Calls the Stoat API or client internals to new for this resource.
+    /// Create a new instance.
     pub fn new(http: HttpClient, gateway: GatewayClient) -> Self {
         KahoClient {
             http,
@@ -84,18 +84,18 @@ impl Default for KahoClientBuilder {
 }
 
 impl KahoClientBuilder {
-    /// Calls the Stoat API or client internals to new for this resource.
+    /// Create a new instance.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Calls the Stoat API or client internals to token for this resource.
+    /// Set the authentication token.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
         self
     }
 
-    /// Calls the Stoat API or client internals to build for this resource.
+    /// Build the client.
     pub fn build(self) -> KahoResult<KahoClient> {
         let token = self
             .token

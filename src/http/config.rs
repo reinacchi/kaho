@@ -10,7 +10,7 @@ pub struct HttpConfig {
 }
 
 impl HttpConfig {
-    /// Calls the Stoat API or client internals to new for this resource.
+    /// Create a new instance.
     pub fn new(token: impl Into<String>) -> Result<Self, KahoError> {
         let token = token.into();
         if token.is_empty() {

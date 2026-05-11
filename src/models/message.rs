@@ -14,7 +14,7 @@ use crate::{
 /// Represents a message in the Stoat platform.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Message {
-    /// The unique ID assigned to this resource by the Stoat API.
+    /// The unique ID assigned to the `Message` by the Stoat API.
     #[serde(rename = "_id")]
     pub id: Id,
     /// Optional nonce supplied when the message was created.
@@ -60,7 +60,7 @@ impl Message {
         http.unpin_message(&self.channel, &self.id).await
     }
 
-    /// Calls the Stoat API or client internals to edit for this resource.
+    /// Edit the `Message`.
     pub async fn edit(
         &self,
         http: &HttpClient,
@@ -79,7 +79,7 @@ impl Message {
         http.remove_reaction(&self.channel, &self.id, emoji).await
     }
 
-    /// Calls the Stoat API or client internals to clear reactions for this resource.
+    /// Clear message reactions.
     pub async fn clear_reactions(&self, http: &HttpClient) -> KahoResult {
         http.clear_reactions(&self.channel, &self.id).await
     }
@@ -138,7 +138,7 @@ pub struct MessageMasquerade {
     pub avatar: Option<String>,
     /// The role or embed colour value encoded as an API integer.
     pub colour: Option<String>,
-    /// The display name or configured name for this resource.
+    /// The display name or configured name for the `MessageMasquerade`.
     pub name: String,
 }
 /// Represents the supported search message sort variants returned by or sent to the Stoat API.
