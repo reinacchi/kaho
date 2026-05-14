@@ -26,70 +26,40 @@ tokio = { version = "*", features = ["macros", "rt-multi-thread"] }
 
 ```rs
 use kaho::{
-    client::{KahoClient, KahoClientBuilder},
+    client::KahoClientBuilder,
     models::{GatewayEvent, MessageSend},
     KahoResult,
 };
-use std::sync::Arc;
-use tracing::{error, warn};
-
-async fn handle_event(event: GatewayEvent, client: Arc<KahoClient>) {
-    match event {
-        GatewayEvent::Ready => {
-            if let Ok(user) = client.http.fetch_self().await {
-                println!("{}#{} is Ready!", user.username, user.discriminator);
-            }
-        }
-        GatewayEvent::Message(message) => {
-            let content = message.content.to_string();
-
-            if content == "!ping" {
-                let payload = MessageSend {
-                    content: "Pong!".to_string(),
-                    ..Default::default()
-                };
-
-                if let Err(e) = client.http.send_message(&message.channel, payload).await {
-                    error!("Failed to send message: {}", e);
-                }
-            }
-        }
-        _ => {}
-    }
-}
 
 #[tokio::main]
 async fn main() -> KahoResult<()> {
-    tracing_subscriber::fmt::init();
-
-    let token = "STOAT_TOKEN";
-
-    let mut client = KahoClientBuilder::new().
-        token(token)
+    let mut client = KahoClientBuilder::new()
+        .token("TOKEN")
         .build()?;
 
     client.connect().await?;
 
-    let client = Arc::new(client);
+    let mut events = client.events();
 
-    let mut event_stream = client.gateway.events();
-
-    while let Some(item) = event_stream.next().await {
-        match item {
-            Ok(event) => {
-                let client = Arc::clone(&client);
-                tokio::spawn(async move {
-                    handle_event(event, client).await;
-                });
+    while let Some(Ok(event)) = events.next().await {
+        match event {
+            GatewayEvent::Message(m) if m.content == "!ping" => {
+                m.reply(
+                    &client.http,
+                    MessageSend {
+                        content: "Pong!".into(),
+                        ..Default::default()
+                    },
+                    false,
+                )
+                .await?;
             }
-            Err(e) => {
-                warn!(error = ?e, "Failed to receive event");
-            }
+            _ => {}
         }
     }
-
     Ok(())
 }
+
 ```
 
 ## License
