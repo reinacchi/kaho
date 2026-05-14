@@ -169,6 +169,7 @@ impl GatewayClient {
 
         let read_task = spawn({
             let server_sender = server_sender.clone();
+
             async move {
                 while let Some(msg) = read_stream.next().await {
                     let event = match msg {
@@ -192,11 +193,7 @@ impl GatewayClient {
                         Err(e) => Err(handle_websocket_error(e).into()),
                     };
 
-                    if matches!(event, Ok(GatewayEvent::Pong)) {
-                        continue;
-                    }
-
-                    if server_sender.send(event).await.is_err() {
+                    if !send_gateway_event(&server_sender, event).await {
                         break;
                     }
                 }
@@ -253,6 +250,36 @@ impl GatewayClient {
     }
 }
 
+async fn send_gateway_event(
+    sender: &Sender<Result<GatewayEvent, KahoError>>,
+    event: KahoResult<GatewayEvent>,
+) -> bool {
+    let event = match event {
+        Ok(event) => event,
+        Err(error) => return sender.send(Err(error)).await.is_ok(),
+    };
+
+    let mut stack = vec![event];
+
+    while let Some(event) = stack.pop() {
+        match event {
+            GatewayEvent::Pong { .. } => {
+                // Heartbeat pongs are internal and should not be forwarded.
+            }
+            GatewayEvent::Bulk { v } => {
+                stack.extend(v.into_iter().rev());
+            }
+            event => {
+                if sender.send(Ok(event)).await.is_err() {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 fn handle_websocket_error(err: WsError) -> KahoError {
     match &err {
         WsError::AlreadyClosed => KahoError::Other("WebSocket already closed".to_string()),
@@ -282,7 +309,7 @@ fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
 
 fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
     match serde_json::from_str::<GatewayEvent>(text) {
-        Ok(GatewayEvent::Pong) => Ok(GatewayEvent::Pong),
+        Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
         Ok(event) => Ok(event),
         Err(e) => Err(KahoError::Other(format!("Deserialization error: {}", e))),
     }
@@ -291,8 +318,11 @@ fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
 #[cfg(feature = "msgpack")]
 fn deserialize_gateway_event_binary(bytes: &[u8]) -> KahoResult<GatewayEvent> {
     match rmp_serde::from_slice::<GatewayEvent>(bytes) {
-        Ok(GatewayEvent::Pong) => Ok(GatewayEvent::Pong),
+        Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
         Ok(event) => Ok(event),
-        Err(e) => Err(KahoError::Other(format!("MessagePack deserialization error: {}", e))),
+        Err(e) => Err(KahoError::Other(format!(
+            "MessagePack deserialization error: {}",
+            e
+        ))),
     }
 }
