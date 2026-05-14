@@ -1,6 +1,9 @@
 use async_channel::{self, Receiver, Sender};
 use futures::{pin_mut, SinkExt, StreamExt};
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::{select, spawn, time::sleep};
 use tokio_tungstenite::{
     connect_async,
@@ -35,7 +38,7 @@ pub struct GatewayClient {
     /// The config value associated with this gateway client.
     pub config: GatewayConfig,
     /// Timestamps for the most recent heartbeat ping and pong.
-    pub last_heartbeat: (Instant, Instant),
+    pub last_heartbeat: Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
     client_sender: Sender<ClientEvent>,
     client_receiver: Receiver<ClientEvent>,
     server_sender: Sender<Result<GatewayEvent, KahoError>>,
@@ -52,7 +55,7 @@ impl GatewayClient {
 
         Self {
             config,
-            last_heartbeat: (Instant::now(), Instant::now()),
+            last_heartbeat: Arc::new(Mutex::new((None, None))),
             client_receiver,
             client_sender,
             server_receiver,
@@ -133,11 +136,14 @@ impl GatewayClient {
         let client_receiver = self.client_receiver.clone();
         let server_sender = self.server_sender.clone();
         let heartbeat_sender = self.client_sender.clone();
+        let last_heartbeat = self.last_heartbeat.clone();
 
         let heartbeat_task = spawn({
             let interval = self.config.heartbeat_interval;
+            let last_heartbeat = last_heartbeat.clone();
+
             async move {
-                let _ = Self::heartbeat(heartbeat_sender, interval).await;
+                let _ = Self::heartbeat(heartbeat_sender, interval, last_heartbeat).await;
             }
         });
 
@@ -169,6 +175,7 @@ impl GatewayClient {
 
         let read_task = spawn({
             let server_sender = server_sender.clone();
+            let last_heartbeat = last_heartbeat.clone();
 
             async move {
                 while let Some(msg) = read_stream.next().await {
@@ -193,7 +200,7 @@ impl GatewayClient {
                         Err(e) => Err(handle_websocket_error(e).into()),
                     };
 
-                    if !send_gateway_event(&server_sender, event).await {
+                    if !send_gateway_event(&server_sender, event, &last_heartbeat).await {
                         break;
                     }
                 }
@@ -230,22 +237,36 @@ impl GatewayClient {
     }
 
     /// Return the current heartbeat latency estimate.
+    ///
+    /// Returns `Duration::ZERO` until at least one ping/pong cycle has completed.
     pub fn latency(&self) -> Duration {
-        let (last_ping, last_pong) = self.last_heartbeat;
-        if last_pong >= last_ping {
-            last_pong.duration_since(last_ping)
-        } else {
-            last_ping.duration_since(last_pong)
+        let Ok((last_ping, last_pong)) = self.last_heartbeat.lock().map(|state| *state) else {
+            return Duration::ZERO;
+        };
+
+        match (last_ping, last_pong) {
+            (Some(ping), Some(pong)) if pong >= ping => pong.duration_since(ping),
+            _ => Duration::ZERO,
         }
     }
 
-    async fn heartbeat(sender: Sender<ClientEvent>, interval: Duration) -> Result<(), KahoError> {
+    async fn heartbeat(
+        sender: Sender<ClientEvent>,
+        interval: Duration,
+        last_heartbeat: Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
+    ) -> Result<(), KahoError> {
         loop {
+            if let Ok(mut heartbeat) = last_heartbeat.lock() {
+                heartbeat.0 = Some(Instant::now());
+            }
+
             if let Err(_e) = sender.send(ClientEvent::Ping { data: 0 }).await {
                 break;
             }
+
             sleep(interval).await;
         }
+
         Ok(())
     }
 }
@@ -253,6 +274,7 @@ impl GatewayClient {
 async fn send_gateway_event(
     sender: &Sender<Result<GatewayEvent, KahoError>>,
     event: KahoResult<GatewayEvent>,
+    last_heartbeat: &Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
 ) -> bool {
     let event = match event {
         Ok(event) => event,
@@ -264,7 +286,9 @@ async fn send_gateway_event(
     while let Some(event) = stack.pop() {
         match event {
             GatewayEvent::Pong { .. } => {
-                // Heartbeat pongs are internal and should not be forwarded.
+                if let Ok(mut heartbeat) = last_heartbeat.lock() {
+                    heartbeat.1 = Some(Instant::now());
+                }
             }
             GatewayEvent::Bulk { v } => {
                 stack.extend(v.into_iter().rev());
