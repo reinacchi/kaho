@@ -1,6 +1,7 @@
 use {
     reqwest::{
         header::{HeaderMap, HeaderValue},
+        multipart::{Form, Part},
         Client, Method, RequestBuilder, Response, StatusCode,
     },
     serde::{de::DeserializeOwned, ser::Serialize},
@@ -40,6 +41,14 @@ impl HttpClient {
             "{}/{}",
             self.config.api_url.trim_end_matches('/'),
             path.as_ref().trim_start_matches('/')
+        )
+    }
+
+    fn make_cdn_url(&self, tag: AttachmentTag) -> String {
+        format!(
+            "{}/{}",
+            self.config.cdn_url.trim_end_matches('/'),
+            tag.as_str()
         )
     }
 
@@ -177,6 +186,32 @@ impl HttpClient {
             .await?;
 
         Ok(response.json().await?)
+    }
+
+    /// Upload raw file bytes to the Stoat CDN and return the generated file ID.
+    ///
+    /// The returned ID can be used in message attachments, embed media, avatars,
+    /// icons, banners, and other API fields that accept uploaded file IDs.
+    pub async fn upload_file(
+        &self,
+        tag: AttachmentTag,
+        filename: impl Into<String>,
+        bytes: impl Into<Vec<u8>>,
+    ) -> KahoResult<Id> {
+        let filename = filename.into();
+        let bytes = bytes.into();
+        let path = format!("/{}", tag.as_str());
+        let url = self.make_cdn_url(tag);
+
+        let response = self
+            .send_rate_limited(Method::POST, &path, || {
+                let part = Part::bytes(bytes.clone()).file_name(filename.clone());
+                let form = Form::new().part("file", part);
+                self.client.post(url.clone()).multipart(form)
+            })
+            .await?;
+
+        Ok(response.json::<FileUploadResponse>().await?.id)
     }
 
     /// Send a DELETE request.

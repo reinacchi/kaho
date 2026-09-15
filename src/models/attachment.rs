@@ -51,3 +51,22 @@ pub enum AttachmentMetadata {
     /// Represents the video variant for this public enum.
     Video { height: usize, width: usize },
 }
+/// Response returned after uploading a file to the Stoat CDN.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct FileUploadResponse {
+    /// The generated file ID that can be referenced by messages and embeds.
+    pub id: Id,
+}
+
+impl AttachmentTag {
+    /// Return the CDN path segment used for this attachment category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Attachments => "attachments",
+            Self::Avatars => "avatars",
+            Self::Banners => "banners",
+            Self::Backgrounds => "backgrounds",
+            Self::Icons => "icons",
+        }
+    }
+}
