@@ -154,7 +154,7 @@ struct StaticBucket {
 }
 
 fn static_bucket(method: &Method, path: &str) -> Option<StaticBucket> {
-    let path = normalise_path(path);
+    let path = clean_url_path(path);
 
     if method.as_str() == Method::PATCH.as_str() && matches_pattern(&path, "/users/:id") {
         return Some(StaticBucket {
@@ -236,10 +236,10 @@ fn static_bucket(method: &Method, path: &str) -> Option<StaticBucket> {
 fn route_key(method: &Method, path: &str) -> String {
     static_bucket(method, path)
         .map(|bucket| bucket.name.to_owned())
-        .unwrap_or_else(|| format!("{} {}", method.as_str(), normalise_path(path)))
+        .unwrap_or_else(|| format!("{} {}", method.as_str(), clean_url_path(path)))
 }
 
-fn normalise_path(path: &str) -> String {
+fn clean_url_path(path: &str) -> String {
     let path = path.split('?').next().unwrap_or(path).trim();
     let path = format!("/{}", path.trim_start_matches('/').trim_end_matches('/'));
     if path == "/" {
