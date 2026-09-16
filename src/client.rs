@@ -5,10 +5,17 @@ use crate::{
 };
 
 #[cfg(feature = "cache")]
-use crate::cache::Cache;
-#[cfg(feature = "cache")]
-use crate::{gateway::GatewayEventStream, models::GatewayEvent};
-
+use crate::{
+    cache::Cache,
+    gateway::GatewayEventStream,
+    models::{
+        Channel, ChannelCloseQuery, ChannelCreate, ChannelUpdate, FetchMembersQuery,
+        FetchMessageQuery, GatewayEvent, GroupCreate, Member, MemberList, MemberUpdate, Message,
+        MessageEdit, MessageSearch, MessageSend, Role, RoleCreate, RoleCreateResponse,
+        RoleRanksUpdate, RoleUpdate, SendFriendRequest, Server, ServerBans, ServerCreate,
+        ServerEdit, User, UserUpdate,
+    },
+};
 
 /// Gateway event stream that keeps the client's cache up to date before
 /// yielding each event to the caller.
@@ -116,14 +123,14 @@ impl KahoClientBuilder {
 #[cfg(feature = "cache")]
 impl KahoClient {
     /// Fetch the current bot user and store it in the cache.
-    pub async fn fetch_self_cached(&self) -> KahoResult<crate::models::User> {
+    pub async fn fetch_self_cached(&self) -> KahoResult<User> {
         let user = self.http.fetch_self().await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
     }
 
     /// Fetch a user from the cache, falling back to HTTP when missing.
-    pub async fn user(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn user(&self, user_id: &str) -> KahoResult<User> {
         if let Some(user) = self.cache.user(user_id).await {
             return Ok(user);
         }
@@ -134,7 +141,7 @@ impl KahoClient {
     }
 
     /// Fetch a fresh user over HTTP and replace the cached value.
-    pub async fn fetch_user_cached(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn fetch_user_cached(&self, user_id: &str) -> KahoResult<User> {
         let user = self.http.fetch_user(user_id).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
@@ -144,15 +151,15 @@ impl KahoClient {
     pub async fn edit_user_cached(
         &self,
         user_id: &str,
-        payload: impl Into<crate::models::UserUpdate>,
-    ) -> KahoResult<crate::models::User> {
+        payload: impl Into<UserUpdate>,
+    ) -> KahoResult<User> {
         let user = self.http.edit_user(user_id, payload).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
     }
 
     /// Fetch a server from the cache, falling back to HTTP when missing.
-    pub async fn server(&self, server_id: &str) -> KahoResult<crate::models::Server> {
+    pub async fn server(&self, server_id: &str) -> KahoResult<Server> {
         if let Some(server) = self.cache.server(server_id).await {
             return Ok(server);
         }
@@ -163,7 +170,7 @@ impl KahoClient {
     }
 
     /// Fetch a fresh server over HTTP and replace the cached value.
-    pub async fn fetch_server_cached(&self, server_id: &str) -> KahoResult<crate::models::Server> {
+    pub async fn fetch_server_cached(&self, server_id: &str) -> KahoResult<Server> {
         let server = self.http.fetch_server(server_id).await?;
         self.cache.insert_server(server.clone()).await;
         Ok(server)
@@ -172,8 +179,8 @@ impl KahoClient {
     /// Create a server and cache the response.
     pub async fn create_server_cached(
         &self,
-        payload: impl Into<crate::models::ServerCreate>,
-    ) -> KahoResult<crate::models::Server> {
+        payload: impl Into<ServerCreate>,
+    ) -> KahoResult<Server> {
         let server = self.http.create_server(payload).await?;
         self.cache.insert_server(server.clone()).await;
         Ok(server)
@@ -183,8 +190,8 @@ impl KahoClient {
     pub async fn edit_server_cached(
         &self,
         server_id: &str,
-        payload: impl Into<crate::models::ServerEdit>,
-    ) -> KahoResult<crate::models::Server> {
+        payload: impl Into<ServerEdit>,
+    ) -> KahoResult<Server> {
         let server = self.http.edit_server(server_id, payload).await?;
         self.cache.insert_server(server.clone()).await;
         Ok(server)
@@ -198,11 +205,7 @@ impl KahoClient {
     }
 
     /// Fetch a role from a cached server, falling back to HTTP when missing.
-    pub async fn server_role(
-        &self,
-        server_id: &str,
-        role_id: &str,
-    ) -> KahoResult<crate::models::Role> {
+    pub async fn server_role(&self, server_id: &str, role_id: &str) -> KahoResult<Role> {
         if let Some(role) = self.cache.role(server_id, role_id).await {
             return Ok(role);
         }
@@ -222,7 +225,7 @@ impl KahoClient {
         &self,
         server_id: &str,
         role_id: &str,
-    ) -> KahoResult<crate::models::Role> {
+    ) -> KahoResult<Role> {
         let mut role = self.http.fetch_server_role(server_id, role_id).await?;
         if role.id.is_empty() {
             role.id = role_id.to_owned();
@@ -237,8 +240,8 @@ impl KahoClient {
     pub async fn create_server_role_cached(
         &self,
         server_id: &str,
-        payload: impl Into<crate::models::RoleCreate>,
-    ) -> KahoResult<crate::models::RoleCreateResponse> {
+        payload: impl Into<RoleCreate>,
+    ) -> KahoResult<RoleCreateResponse> {
         let mut response = self.http.create_server_role(server_id, payload).await?;
         if response.role.id.is_empty() {
             response.role.id = response.id.clone();
@@ -254,9 +257,12 @@ impl KahoClient {
         &self,
         server_id: &str,
         role_id: &str,
-        payload: impl Into<crate::models::RoleUpdate>,
-    ) -> KahoResult<crate::models::Role> {
-        let mut role = self.http.edit_server_role(server_id, role_id, payload).await?;
+        payload: impl Into<RoleUpdate>,
+    ) -> KahoResult<Role> {
+        let mut role = self
+            .http
+            .edit_server_role(server_id, role_id, payload)
+            .await?;
         if role.id.is_empty() {
             role.id = role_id.to_owned();
         }
@@ -277,7 +283,7 @@ impl KahoClient {
     pub async fn set_server_role_ranks_cached(
         &self,
         server_id: &str,
-        payload: impl Into<crate::models::RoleRanksUpdate>,
+        payload: impl Into<RoleRanksUpdate>,
     ) -> KahoResult {
         let payload = payload.into();
         let ranks = payload.ranks.clone();
@@ -287,7 +293,7 @@ impl KahoClient {
     }
 
     /// Fetch a channel from the cache, falling back to HTTP when missing.
-    pub async fn channel(&self, channel_id: &str) -> KahoResult<crate::models::Channel> {
+    pub async fn channel(&self, channel_id: &str) -> KahoResult<Channel> {
         if let Some(channel) = self.cache.channel(channel_id).await {
             return Ok(channel);
         }
@@ -298,21 +304,21 @@ impl KahoClient {
     }
 
     /// Fetch a fresh channel over HTTP and replace the cached value.
-    pub async fn fetch_channel_cached(&self, channel_id: &str) -> KahoResult<crate::models::Channel> {
+    pub async fn fetch_channel_cached(&self, channel_id: &str) -> KahoResult<Channel> {
         let channel = self.http.fetch_channel(channel_id).await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
     }
 
     /// Fetch direct message channels and cache every returned channel.
-    pub async fn fetch_direct_message_channels_cached(&self) -> KahoResult<Vec<crate::models::Channel>> {
+    pub async fn fetch_direct_message_channels_cached(&self) -> KahoResult<Vec<Channel>> {
         let channels = self.http.fetch_direct_message_channels().await?;
         self.cache.insert_channels(channels.clone()).await;
         Ok(channels)
     }
 
     /// Open a direct message channel and cache it.
-    pub async fn open_direct_message_cached(&self, user_id: &str) -> KahoResult<crate::models::Channel> {
+    pub async fn open_direct_message_cached(&self, user_id: &str) -> KahoResult<Channel> {
         let channel = self.http.open_direct_message(user_id).await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
@@ -322,8 +328,8 @@ impl KahoClient {
     pub async fn edit_channel_cached(
         &self,
         channel_id: &str,
-        payload: impl Into<crate::models::ChannelUpdate>,
-    ) -> KahoResult<crate::models::Channel> {
+        payload: impl Into<ChannelUpdate>,
+    ) -> KahoResult<Channel> {
         let channel = self.http.edit_channel(channel_id, payload).await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
@@ -333,7 +339,7 @@ impl KahoClient {
     pub async fn close_channel_cached(
         &self,
         channel_id: &str,
-        query: impl Into<Option<crate::models::ChannelCloseQuery>>,
+        query: impl Into<Option<ChannelCloseQuery>>,
     ) -> KahoResult {
         self.http.close_channel(channel_id, query).await?;
         self.cache.remove_channel(channel_id).await;
@@ -343,8 +349,8 @@ impl KahoClient {
     /// Create a group and cache the returned channel.
     pub async fn create_group_cached(
         &self,
-        payload: impl Into<crate::models::GroupCreate>,
-    ) -> KahoResult<crate::models::Channel> {
+        payload: impl Into<GroupCreate>,
+    ) -> KahoResult<Channel> {
         let channel = self.http.create_group(payload).await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
@@ -354,15 +360,15 @@ impl KahoClient {
     pub async fn create_server_channel_cached(
         &self,
         server_id: &str,
-        payload: impl Into<crate::models::ChannelCreate>,
-    ) -> KahoResult<crate::models::Channel> {
+        payload: impl Into<ChannelCreate>,
+    ) -> KahoResult<Channel> {
         let channel = self.http.create_server_channel(server_id, payload).await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
     }
 
     /// Fetch a message from the cache, falling back to HTTP when missing.
-    pub async fn message(&self, channel_id: &str, message_id: &str) -> KahoResult<crate::models::Message> {
+    pub async fn message(&self, channel_id: &str, message_id: &str) -> KahoResult<Message> {
         if let Some(message) = self.cache.message(message_id).await {
             return Ok(message);
         }
@@ -377,7 +383,7 @@ impl KahoClient {
         &self,
         channel_id: &str,
         message_id: &str,
-    ) -> KahoResult<crate::models::Message> {
+    ) -> KahoResult<Message> {
         let message = self.http.fetch_message(channel_id, message_id).await?;
         self.cache.insert_message(message.clone()).await;
         Ok(message)
@@ -387,8 +393,8 @@ impl KahoClient {
     pub async fn fetch_messages_cached(
         &self,
         channel_id: &str,
-        query: impl Into<Option<crate::models::FetchMessageQuery>>,
-    ) -> KahoResult<Vec<crate::models::Message>> {
+        query: impl Into<Option<FetchMessageQuery>>,
+    ) -> KahoResult<Vec<Message>> {
         let messages = self.http.fetch_messages(channel_id, query).await?;
         self.cache.insert_messages(messages.clone()).await;
         Ok(messages)
@@ -398,8 +404,8 @@ impl KahoClient {
     pub async fn send_message_cached(
         &self,
         channel_id: &str,
-        payload: impl Into<crate::models::MessageSend>,
-    ) -> KahoResult<crate::models::Message> {
+        payload: impl Into<MessageSend>,
+    ) -> KahoResult<Message> {
         let message = self.http.send_message(channel_id, payload).await?;
         self.cache.insert_message(message.clone()).await;
         Ok(message)
@@ -409,8 +415,8 @@ impl KahoClient {
     pub async fn search_messages_cached(
         &self,
         channel_id: &str,
-        payload: impl Into<crate::models::MessageSearch>,
-    ) -> KahoResult<Vec<crate::models::Message>> {
+        payload: impl Into<MessageSearch>,
+    ) -> KahoResult<Vec<Message>> {
         let messages = self.http.search_messages(channel_id, payload).await?;
         self.cache.insert_messages(messages.clone()).await;
         Ok(messages)
@@ -421,9 +427,12 @@ impl KahoClient {
         &self,
         channel_id: &str,
         message_id: &str,
-        payload: impl Into<crate::models::MessageEdit>,
-    ) -> KahoResult<crate::models::Message> {
-        let message = self.http.edit_message(channel_id, message_id, payload).await?;
+        payload: impl Into<MessageEdit>,
+    ) -> KahoResult<Message> {
+        let message = self
+            .http
+            .edit_message(channel_id, message_id, payload)
+            .await?;
         self.cache.insert_message(message.clone()).await;
         Ok(message)
     }
@@ -433,10 +442,13 @@ impl KahoClient {
         &self,
         channel_id: &str,
         message_id: &str,
-        payload: impl Into<crate::models::MessageSend>,
+        payload: impl Into<MessageSend>,
         mention: bool,
-    ) -> KahoResult<crate::models::Message> {
-        let message = self.http.reply_message(channel_id, message_id, payload, mention).await?;
+    ) -> KahoResult<Message> {
+        let message = self
+            .http
+            .reply_message(channel_id, message_id, payload, mention)
+            .await?;
         self.cache.insert_message(message.clone()).await;
         Ok(message)
     }
@@ -454,7 +466,9 @@ impl KahoClient {
         channel_id: &str,
         message_ids: Vec<String>,
     ) -> KahoResult {
-        self.http.bulk_delete_messages(channel_id, message_ids.clone()).await?;
+        self.http
+            .bulk_delete_messages(channel_id, message_ids.clone())
+            .await?;
         for message_id in message_ids {
             self.cache.remove_message(message_id).await;
         }
@@ -462,18 +476,14 @@ impl KahoClient {
     }
 
     /// Fetch group members and cache every returned user.
-    pub async fn fetch_group_members_cached(&self, channel_id: &str) -> KahoResult<Vec<crate::models::User>> {
+    pub async fn fetch_group_members_cached(&self, channel_id: &str) -> KahoResult<Vec<User>> {
         let users = self.http.fetch_group_members(channel_id).await?;
         self.cache.insert_users(users.clone()).await;
         Ok(users)
     }
 
     /// Fetch a server member from the cache, falling back to HTTP when missing.
-    pub async fn server_member(
-        &self,
-        server_id: &str,
-        member_id: &str,
-    ) -> KahoResult<crate::models::Member> {
+    pub async fn server_member(&self, server_id: &str, member_id: &str) -> KahoResult<Member> {
         if let Some(member) = self.cache.member(server_id, member_id).await {
             return Ok(member);
         }
@@ -488,7 +498,7 @@ impl KahoClient {
         &self,
         server_id: &str,
         member_id: &str,
-    ) -> KahoResult<crate::models::Member> {
+    ) -> KahoResult<Member> {
         let member = self.http.fetch_server_member(server_id, member_id).await?;
         self.cache.insert_member(member.clone()).await;
         Ok(member)
@@ -499,8 +509,8 @@ impl KahoClient {
         &self,
         server_id: &str,
         member_id: &str,
-        payload: impl Into<crate::models::MemberUpdate>,
-    ) -> KahoResult<crate::models::Member> {
+        payload: impl Into<MemberUpdate>,
+    ) -> KahoResult<Member> {
         let member = self
             .http
             .edit_server_member(server_id, member_id, payload)
@@ -520,43 +530,43 @@ impl KahoClient {
     pub async fn fetch_server_members_cached(
         &self,
         server_id: &str,
-        query: impl Into<Option<crate::models::FetchMembersQuery>>,
-    ) -> KahoResult<crate::models::MemberList> {
+        query: impl Into<Option<FetchMembersQuery>>,
+    ) -> KahoResult<MemberList> {
         let member_list = self.http.fetch_server_members(server_id, query).await?;
         self.cache.insert_member_list(&member_list).await;
         Ok(member_list)
     }
 
     /// Fetch server bans and cache every returned user.
-    pub async fn fetch_server_bans_cached(&self, server_id: &str) -> KahoResult<crate::models::ServerBans> {
+    pub async fn fetch_server_bans_cached(&self, server_id: &str) -> KahoResult<ServerBans> {
         let bans = self.http.fetch_server_bans(server_id).await?;
         self.cache.insert_server_bans(&bans).await;
         Ok(bans)
     }
 
     /// Relationship helpers return updated user models; cache them.
-    pub async fn accept_friend_request_cached(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn accept_friend_request_cached(&self, user_id: &str) -> KahoResult<User> {
         let user = self.http.accept_friend_request(user_id).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
     }
 
     /// Relationship helpers return updated user models; cache them.
-    pub async fn remove_friend_cached(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn remove_friend_cached(&self, user_id: &str) -> KahoResult<User> {
         let user = self.http.remove_friend(user_id).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
     }
 
     /// Relationship helpers return updated user models; cache them.
-    pub async fn block_user_cached(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn block_user_cached(&self, user_id: &str) -> KahoResult<User> {
         let user = self.http.block_user(user_id).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
     }
 
     /// Relationship helpers return updated user models; cache them.
-    pub async fn unblock_user_cached(&self, user_id: &str) -> KahoResult<crate::models::User> {
+    pub async fn unblock_user_cached(&self, user_id: &str) -> KahoResult<User> {
         let user = self.http.unblock_user(user_id).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)
@@ -565,8 +575,8 @@ impl KahoClient {
     /// Send a friend request and cache the returned user.
     pub async fn send_friend_request_cached(
         &self,
-        payload: impl Into<crate::models::SendFriendRequest>,
-    ) -> KahoResult<crate::models::User> {
+        payload: impl Into<SendFriendRequest>,
+    ) -> KahoResult<User> {
         let user = self.http.send_friend_request(payload).await?;
         self.cache.insert_user(user.clone()).await;
         Ok(user)

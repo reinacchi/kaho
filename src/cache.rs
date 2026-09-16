@@ -9,7 +9,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
+use serde_json::{from_value, to_value, Value};
 use tokio::sync::RwLock;
 use tracing::debug;
 
@@ -112,7 +112,8 @@ impl CacheInner {
                 self.messages.remove(&event.id);
             }
             GatewayEvent::ChannelCreate(channel) => {
-                self.channels.insert(channel.id().to_owned(), channel.clone());
+                self.channels
+                    .insert(channel.id().to_owned(), channel.clone());
             }
             GatewayEvent::ChannelUpdate(event) => {
                 let evict = self
@@ -153,7 +154,8 @@ impl CacheInner {
                         self.channels.remove(&channel_id);
                     }
                 }
-                self.members.retain(|id, _| id.server.as_str() != event.id.as_str());
+                self.members
+                    .retain(|id, _| id.server.as_str() != event.id.as_str());
             }
             GatewayEvent::ServerMemberUpdate(event) => {
                 let evict = self
@@ -195,7 +197,7 @@ impl CacheInner {
                             object.insert("_id".into(), Value::String(event.role_id.clone()));
                         }
 
-                        match serde_json::from_value::<Role>(role_value) {
+                        match from_value::<Role>(role_value) {
                             Ok(mut role) => {
                                 role.id = event.role_id.clone();
                                 server.roles.insert(event.role_id.clone(), role);
@@ -245,7 +247,8 @@ impl CacheInner {
             }
             GatewayEvent::UserPlatformWipe(event) => {
                 self.users.remove(&event.user_id);
-                self.members.retain(|id, _| id.user.as_str() != event.user_id.as_str());
+                self.members
+                    .retain(|id, _| id.user.as_str() != event.user_id.as_str());
             }
             _ => {}
         }
@@ -256,7 +259,9 @@ impl CacheInner {
 
         if let Some(server) = self.servers.get_mut(server_id) {
             let complete = ranks.len() == server.roles.len()
-                && ranks.iter().all(|role_id| server.roles.contains_key(role_id));
+                && ranks
+                    .iter()
+                    .all(|role_id| server.roles.contains_key(role_id));
 
             if complete {
                 for (rank, role_id) in ranks.iter().enumerate() {
@@ -335,7 +340,11 @@ impl Cache {
     /// Insert or replace a server in the cache.
     pub async fn insert_server(&self, mut server: Server) -> Option<Server> {
         normalize_server_roles(&mut server);
-        self.inner.write().await.servers.insert(server.id.clone(), server)
+        self.inner
+            .write()
+            .await
+            .servers
+            .insert(server.id.clone(), server)
     }
 
     /// Insert or replace several servers.
@@ -362,7 +371,9 @@ impl Cache {
         let id = id.as_ref();
         let mut inner = self.inner.write().await;
         let removed = inner.servers.remove(id);
-        inner.members.retain(|member_id, _| member_id.server.as_str() != id);
+        inner
+            .members
+            .retain(|member_id, _| member_id.server.as_str() != id);
         if let Some(server) = &removed {
             for channel_id in &server.channels {
                 inner.channels.remove(channel_id);
@@ -534,7 +545,11 @@ impl Cache {
 
     /// Insert or replace a message in the cache.
     pub async fn insert_message(&self, message: Message) -> Option<Message> {
-        self.inner.write().await.messages.insert(message.id.clone(), message)
+        self.inner
+            .write()
+            .await
+            .messages
+            .insert(message.id.clone(), message)
     }
 
     /// Insert or replace several messages.
@@ -566,7 +581,11 @@ impl Cache {
         CacheCounts {
             users: inner.users.len(),
             servers: inner.servers.len(),
-            roles: inner.servers.values().map(|server| server.roles.len()).sum(),
+            roles: inner
+                .servers
+                .values()
+                .map(|server| server.roles.len())
+                .sum(),
             channels: inner.channels.len(),
             members: inner.members.len(),
             messages: inner.messages.len(),
@@ -580,7 +599,7 @@ impl Cache {
 }
 
 fn decode_ready<T: DeserializeOwned>(value: &Value, kind: &str) -> Option<T> {
-    match serde_json::from_value(value.clone()) {
+    match from_value(value.clone()) {
         Ok(value) => Some(value),
         Err(error) => {
             debug!(%error, model = kind, "failed to decode model from Ready event");
@@ -601,7 +620,7 @@ fn merge_partial<T>(current: &mut T, data: &Value, clear: &[String]) -> bool
 where
     T: DeserializeOwned + Serialize,
 {
-    let Ok(mut value) = serde_json::to_value(&*current) else {
+    let Ok(mut value) = to_value(&*current) else {
         return false;
     };
 
@@ -616,7 +635,7 @@ where
         base.remove(&event_field_to_json(field));
     }
 
-    match serde_json::from_value(value) {
+    match from_value(value) {
         Ok(updated) => {
             *current = updated;
             true

@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use crate::{
     http::HttpClient,
@@ -153,8 +154,8 @@ pub enum SearchMessageSort {
     Oldest,
 }
 
-impl std::fmt::Display for SearchMessageSort {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Display for SearchMessageSort {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         match self {
             SearchMessageSort::Relevance => write!(f, "Relevance"),
             SearchMessageSort::Newest => write!(f, "Newest"),

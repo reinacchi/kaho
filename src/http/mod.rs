@@ -7,6 +7,6 @@ pub use {
 
 mod client;
 mod config;
-mod rate_limit;
 /// Endpoint variants used to build typed Stoat REST API paths.
 pub mod endpoint;
+mod rate_limit;

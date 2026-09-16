@@ -1,9 +1,11 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::{
     error::AuthError,
-    models::{Channel, Emoji, Id, Member, MemberId, Message, RelationshipStatus, Server, User, UserFlags},
+    models::{
+        Channel, Emoji, Id, Member, MemberId, Message, RelationshipStatus, Server, User, UserFlags,
+    },
 };
 
 /// Events sent from the client to the Stoat gateway.
@@ -417,7 +419,7 @@ pub enum GatewayEvent {
 
 fn deserialize_value_array<'de, D>(deserializer: D) -> Result<Vec<Value>, D::Error>
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
     let value = Option::<Value>::deserialize(deserializer)?;
 

@@ -1,6 +1,10 @@
-use async_channel::{self, Receiver, Sender};
+use async_channel::{unbounded, Receiver, Sender};
 use futures::{pin_mut, SinkExt, StreamExt};
+#[cfg(feature = "msgpack")]
+use rmp_serde::{from_slice as from_msgpack_slice, to_vec_named as to_msgpack_vec};
+use serde_json::{from_str as from_json_str, to_string as to_json_string};
 use std::{
+    cmp::min,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -50,8 +54,8 @@ pub struct GatewayClient {
 impl GatewayClient {
     /// Create a gateway client from an existing configuration.
     pub fn new(config: GatewayConfig) -> Self {
-        let (client_sender, client_receiver) = async_channel::unbounded();
-        let (server_sender, server_receiver) = async_channel::unbounded();
+        let (client_sender, client_receiver) = unbounded();
+        let (server_sender, server_receiver) = unbounded();
 
         Self {
             config,
@@ -92,7 +96,7 @@ impl GatewayClient {
                             break;
                         }
 
-                        let delay = std::cmp::min(
+                        let delay = min(
                             client.config.reconnect_delay * client.config.reconnect_attempts as u32,
                             Duration::from_secs(60),
                         );
@@ -319,20 +323,20 @@ fn handle_websocket_error(err: WsError) -> KahoError {
 
 #[cfg(not(feature = "msgpack"))]
 fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
-    serde_json::to_string(event)
+    to_json_string(event)
         .map(|json| Message::Text(json.into()))
         .map_err(|e| KahoError::Other(format!("Serialization error: {}", e)))
 }
 
 #[cfg(feature = "msgpack")]
 fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
-    rmp_serde::to_vec_named(event)
+    to_msgpack_vec(event)
         .map(|bytes| Message::Binary(bytes.into()))
         .map_err(|e| KahoError::Other(format!("MessagePack serialization error: {}", e)))
 }
 
 fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
-    match serde_json::from_str::<GatewayEvent>(text) {
+    match from_json_str::<GatewayEvent>(text) {
         Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
         Ok(event) => Ok(event),
         Err(e) => Err(KahoError::Other(format!("Deserialization error: {}", e))),
@@ -341,7 +345,7 @@ fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
 
 #[cfg(feature = "msgpack")]
 fn deserialize_gateway_event_binary(bytes: &[u8]) -> KahoResult<GatewayEvent> {
-    match rmp_serde::from_slice::<GatewayEvent>(bytes) {
+    match from_msgpack_slice::<GatewayEvent>(bytes) {
         Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
         Ok(event) => Ok(event),
         Err(e) => Err(KahoError::Other(format!(

@@ -5,6 +5,10 @@ use {
         Client, Method, RequestBuilder, Response, StatusCode,
     },
     serde::{de::DeserializeOwned, ser::Serialize},
+    serde_json::{json, Value},
+    serde_urlencoded::to_string as to_query_string,
+    std::{sync::Arc, time::Duration},
+    tokio::time::sleep,
 };
 
 use crate::{
@@ -18,7 +22,7 @@ use crate::{
 pub struct HttpClient {
     client: Client,
     config: HttpConfig,
-    rate_limiter: std::sync::Arc<RateLimiter>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl HttpClient {
@@ -32,7 +36,7 @@ impl HttpClient {
         Ok(Self {
             client,
             config,
-            rate_limiter: std::sync::Arc::new(RateLimiter::default()),
+            rate_limiter: Arc::new(RateLimiter::default()),
         })
     }
 
@@ -83,7 +87,7 @@ impl HttpClient {
             self.rate_limiter
                 .update_retry_after(&method, path, retry_after)
                 .await;
-            tokio::time::sleep(std::time::Duration::from_millis(retry_after)).await;
+            sleep(Duration::from_millis(retry_after)).await;
         }
     }
 
@@ -538,7 +542,7 @@ impl HttpClient {
         let mut path = Endpoint::ChannelMessages(channel_id.to_owned()).path();
 
         if let Some(q) = query.into() {
-            let encoded_query = serde_urlencoded::to_string(&q).unwrap();
+            let encoded_query = to_query_string(&q).unwrap();
             path.push('?');
             path.push_str(&encoded_query);
         }
@@ -625,7 +629,7 @@ impl HttpClient {
         channel_id: &str,
         message_ids: Vec<String>,
     ) -> KahoResult {
-        let payload = serde_json::json!({ "ids": message_ids });
+        let payload = json!({ "ids": message_ids });
 
         self.post(
             Endpoint::ChannelMessageBulk(channel_id.to_owned()).path(),
@@ -692,7 +696,7 @@ impl HttpClient {
     ) -> KahoResult {
         let mut path = Endpoint::Channel(channel_id.to_owned()).path();
         if let Some(q) = query.into() {
-            let encoded = serde_urlencoded::to_string(q).unwrap_or_default();
+            let encoded = to_query_string(q).unwrap_or_default();
             if !encoded.is_empty() {
                 path.push('?');
                 path.push_str(&encoded);
@@ -935,7 +939,7 @@ impl HttpClient {
         &self,
         webhook_id: &str,
         token: &str,
-        payload: serde_json::Value,
+        payload: Value,
     ) -> KahoResult {
         self.post_empty(
             Endpoint::WebhookGithub(webhook_id.to_owned(), token.to_owned()).path(),
@@ -1002,7 +1006,7 @@ impl HttpClient {
     ) -> KahoResult<MemberList> {
         let mut path = Endpoint::ServerMembers(server_id.to_owned()).path();
         if let Some(q) = query.into() {
-            let encoded = serde_urlencoded::to_string(q).unwrap_or_default();
+            let encoded = to_query_string(q).unwrap_or_default();
             if !encoded.is_empty() {
                 path.push('?');
                 path.push_str(&encoded);
@@ -1073,7 +1077,7 @@ impl HttpClient {
         self.get(format!(
             "{}?{}",
             Endpoint::ServerMemberExperimentalQuery(server_id.to_owned()).path(),
-            serde_urlencoded::to_string(payload.into()).unwrap_or_default()
+            to_query_string(payload.into()).unwrap_or_default()
         ))
         .await
     }

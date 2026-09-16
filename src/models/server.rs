@@ -2,10 +2,15 @@ use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::models::{
-    attachment::Attachment,
-    permission::{OverrideField, Permission},
-    Id,
+use crate::{
+    http::HttpClient,
+    models::{
+        attachment::Attachment,
+        permission::{OverrideField, Permission},
+        BanCreate, Channel, ChannelCreate, FetchMembersQuery, Id, Invite, Member, MemberList,
+        MemberUpdate, MembersExperimentalQuery, ServerBans,
+    },
+    KahoResult,
 };
 
 /// Represents a role in a server, which defines permissions and attributes for members.
@@ -225,15 +230,6 @@ pub struct ServerEdit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_messages: Option<SystemMessageChannels>,
 }
-
-use crate::{
-    http::HttpClient,
-    models::{
-        BanCreate, Channel, ChannelCreate, FetchMembersQuery, Invite, Member, MemberList,
-        MemberUpdate, MembersExperimentalQuery, ServerBans,
-    },
-    KahoResult,
-};
 
 /// Represents a role create value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]

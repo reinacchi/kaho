@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::{Attachment, Id};
+use crate::{
+    http::HttpClient,
+    models::{Attachment, Id},
+    KahoResult,
+};
 
 /// Represents a webhook value used by the Stoat API models and endpoints.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -76,8 +80,6 @@ pub struct WebhookExecute {
     #[serde(flatten)]
     pub extra: Value,
 }
-
-use crate::{http::HttpClient, KahoResult};
 
 impl Webhook {
     /// Fetch a fresh copy of this webhook.
