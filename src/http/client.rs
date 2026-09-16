@@ -1012,13 +1012,33 @@ impl HttpClient {
     }
 
     /// Fetch a server member.
+    ///
+    /// Stoat models this endpoint as a union: a plain `Member`, or a wrapper
+    /// containing the member plus expanded roles when `roles=true` is used.
+    /// This convenience method always returns the member object.
     pub async fn fetch_server_member(
         &self,
         server_id: &str,
         member_id: &str,
     ) -> KahoResult<Member> {
-        self.get(Endpoint::ServerMember(server_id.to_owned(), member_id.to_owned()).path())
-            .await
+        Ok(self
+            .fetch_server_member_response(server_id, member_id, false)
+            .await?
+            .into_member())
+    }
+
+    /// Fetch a server member, optionally expanding the roles referenced by it.
+    pub async fn fetch_server_member_response(
+        &self,
+        server_id: &str,
+        member_id: &str,
+        include_roles: bool,
+    ) -> KahoResult<MemberResponse> {
+        let mut path = Endpoint::ServerMember(server_id.to_owned(), member_id.to_owned()).path();
+        if include_roles {
+            path.push_str("?roles=true");
+        }
+        self.get(path).await
     }
 
     /// Kick a server member.

@@ -12,7 +12,7 @@ pub mod http;
 /// Public data models used by the Stoat API and gateway events.
 
 pub mod models;
-/// Optional in-memory cache for users, servers, channels, and messages.
+/// Optional in-memory cache for users, servers, roles, members, channels, and messages.
 
 #[cfg(feature = "cache")]
 pub mod cache;

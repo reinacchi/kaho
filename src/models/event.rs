@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::{
     error::AuthError,
-    models::{Channel, Emoji, Id, Member, Message, RelationshipStatus, Server, User, UserFlags},
+    models::{Channel, Emoji, Id, Member, MemberId, Message, RelationshipStatus, Server, User, UserFlags},
 };
 
 /// Events sent from the client to the Stoat gateway.
@@ -64,15 +64,6 @@ pub struct ReadyEvent {
     /// Policy changes sent in the initial gateway state.
     #[serde(default, deserialize_with = "deserialize_value_array")]
     pub policy_changes: Vec<Value>,
-}
-
-/// Identifier for a server member, as used by member update events.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct MemberId {
-    /// Server ID containing the member.
-    pub server: Id,
-    /// User ID for the member.
-    pub user: Id,
 }
 
 /// Message update payload.
@@ -243,6 +234,15 @@ pub struct ServerRoleUpdateEvent {
     pub clear: Vec<String>,
 }
 
+/// Server role rank update payload.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ServerRoleRanksUpdateEvent {
+    /// Server ID containing the reordered roles.
+    pub id: Id,
+    /// Role IDs in the server's new rank order.
+    pub ranks: Vec<Id>,
+}
+
 /// Server role deletion payload.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ServerRoleDeleteEvent {
@@ -392,6 +392,8 @@ pub enum GatewayEvent {
     ServerMemberLeave(ServerMemberLeaveEvent),
     /// A server role was updated or created.
     ServerRoleUpdate(ServerRoleUpdateEvent),
+    /// Server role ranks were reordered.
+    ServerRoleRanksUpdate(ServerRoleRanksUpdateEvent),
     /// A server role was deleted.
     ServerRoleDelete(ServerRoleDeleteEvent),
     /// User details were updated.

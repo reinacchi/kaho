@@ -9,8 +9,22 @@ use crate::models::{
 };
 
 /// Represents a role in a server, which defines permissions and attributes for members.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Role {
+    /// The unique ID assigned to the role by the Stoat API.
+    ///
+    /// Older gateway payloads did not always repeat the ID inside the role
+    /// object, so deserialization remains tolerant and the cache normalizes it
+    /// from the enclosing role map key when necessary.
+    #[serde(rename = "_id", default)]
+    pub id: Id,
+
+    /// The display name or configured name for the `Role`.
+    pub name: String,
+
+    /// The permissions associated with the role.
+    pub permissions: OverrideField,
+
     /// The colour associated with the role.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colour: Option<String>,
@@ -19,22 +33,22 @@ pub struct Role {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hoist: Option<bool>,
 
-    /// The display name or configured name for the `Role`.
-    pub name: String,
-
-    /// The permissions associated with the role.
-    pub permissions: OverrideField,
-
     /// The ordering rank used when sorting roles or members.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<i64>,
+
+    /// Optional role icon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Attachment>,
 }
 
-/// Represents the fields that can be included in a role object.
+/// Represents the fields that can be removed from a role object.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RoleFields {
     /// Represents the colour variant for this public enum.
     Colour,
+    /// Represents the icon variant for this public enum.
+    Icon,
 }
 
 /// Represents the fields that can be included in a server object.
@@ -255,12 +269,15 @@ pub struct RoleUpdate {
     /// The ordering rank used when sorting roles or members.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<i64>,
+    /// Optional role icon attachment ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Id>,
     /// The permission bitfield applied to this role or resource.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<OverrideField>,
-    /// The list of fields that should be removed from the resource during update.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remove: Option<RoleFields>,
+    /// Fields that should be removed from the role during update.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<RoleFields>,
 }
 
 /// Represents a role ranks update value used by the Stoat API models and endpoints.

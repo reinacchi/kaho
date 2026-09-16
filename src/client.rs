@@ -197,6 +197,95 @@ impl KahoClient {
         Ok(())
     }
 
+    /// Fetch a role from a cached server, falling back to HTTP when missing.
+    pub async fn server_role(
+        &self,
+        server_id: &str,
+        role_id: &str,
+    ) -> KahoResult<crate::models::Role> {
+        if let Some(role) = self.cache.role(server_id, role_id).await {
+            return Ok(role);
+        }
+
+        let mut role = self.http.fetch_server_role(server_id, role_id).await?;
+        if role.id.is_empty() {
+            role.id = role_id.to_owned();
+        }
+        self.cache
+            .insert_role(server_id, role_id.to_owned(), role.clone())
+            .await;
+        Ok(role)
+    }
+
+    /// Fetch a fresh role over HTTP and update an already cached server.
+    pub async fn fetch_server_role_cached(
+        &self,
+        server_id: &str,
+        role_id: &str,
+    ) -> KahoResult<crate::models::Role> {
+        let mut role = self.http.fetch_server_role(server_id, role_id).await?;
+        if role.id.is_empty() {
+            role.id = role_id.to_owned();
+        }
+        self.cache
+            .insert_role(server_id, role_id.to_owned(), role.clone())
+            .await;
+        Ok(role)
+    }
+
+    /// Create a role and update an already cached server.
+    pub async fn create_server_role_cached(
+        &self,
+        server_id: &str,
+        payload: impl Into<crate::models::RoleCreate>,
+    ) -> KahoResult<crate::models::RoleCreateResponse> {
+        let mut response = self.http.create_server_role(server_id, payload).await?;
+        if response.role.id.is_empty() {
+            response.role.id = response.id.clone();
+        }
+        self.cache
+            .insert_role(server_id, response.id.clone(), response.role.clone())
+            .await;
+        Ok(response)
+    }
+
+    /// Edit a role and update an already cached server.
+    pub async fn edit_server_role_cached(
+        &self,
+        server_id: &str,
+        role_id: &str,
+        payload: impl Into<crate::models::RoleUpdate>,
+    ) -> KahoResult<crate::models::Role> {
+        let mut role = self.http.edit_server_role(server_id, role_id, payload).await?;
+        if role.id.is_empty() {
+            role.id = role_id.to_owned();
+        }
+        self.cache
+            .insert_role(server_id, role_id.to_owned(), role.clone())
+            .await;
+        Ok(role)
+    }
+
+    /// Delete a role and remove it from the server/member cache immediately.
+    pub async fn delete_server_role_cached(&self, server_id: &str, role_id: &str) -> KahoResult {
+        self.http.delete_server_role(server_id, role_id).await?;
+        self.cache.remove_role(server_id, role_id).await;
+        Ok(())
+    }
+
+    /// Reorder server roles and update cached role ranks immediately.
+    pub async fn set_server_role_ranks_cached(
+        &self,
+        server_id: &str,
+        payload: impl Into<crate::models::RoleRanksUpdate>,
+    ) -> KahoResult {
+        let payload = payload.into();
+        let ranks = payload.ranks.clone();
+        self.http.set_server_role_ranks(server_id, payload).await?;
+        self.cache.set_role_ranks(server_id, &ranks).await;
+        Ok(())
+    }
+
     /// Fetch a channel from the cache, falling back to HTTP when missing.
     pub async fn channel(&self, channel_id: &str) -> KahoResult<crate::models::Channel> {
         if let Some(channel) = self.cache.channel(channel_id).await {
@@ -379,7 +468,55 @@ impl KahoClient {
         Ok(users)
     }
 
-    /// Fetch server members and cache every returned user.
+    /// Fetch a server member from the cache, falling back to HTTP when missing.
+    pub async fn server_member(
+        &self,
+        server_id: &str,
+        member_id: &str,
+    ) -> KahoResult<crate::models::Member> {
+        if let Some(member) = self.cache.member(server_id, member_id).await {
+            return Ok(member);
+        }
+
+        let member = self.http.fetch_server_member(server_id, member_id).await?;
+        self.cache.insert_member(member.clone()).await;
+        Ok(member)
+    }
+
+    /// Fetch a fresh server member over HTTP and replace the cached value.
+    pub async fn fetch_server_member_cached(
+        &self,
+        server_id: &str,
+        member_id: &str,
+    ) -> KahoResult<crate::models::Member> {
+        let member = self.http.fetch_server_member(server_id, member_id).await?;
+        self.cache.insert_member(member.clone()).await;
+        Ok(member)
+    }
+
+    /// Edit a server member and replace the cached value with the response.
+    pub async fn edit_server_member_cached(
+        &self,
+        server_id: &str,
+        member_id: &str,
+        payload: impl Into<crate::models::MemberUpdate>,
+    ) -> KahoResult<crate::models::Member> {
+        let member = self
+            .http
+            .edit_server_member(server_id, member_id, payload)
+            .await?;
+        self.cache.insert_member(member.clone()).await;
+        Ok(member)
+    }
+
+    /// Kick a server member and evict their cached member state.
+    pub async fn kick_server_member_cached(&self, server_id: &str, member_id: &str) -> KahoResult {
+        self.http.kick_server_member(server_id, member_id).await?;
+        self.cache.remove_member(server_id, member_id).await;
+        Ok(())
+    }
+
+    /// Fetch server members and cache every returned user and member.
     pub async fn fetch_server_members_cached(
         &self,
         server_id: &str,
