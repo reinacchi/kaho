@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     error::{KahoError, KahoResult},
     gateway::{GatewayClient, GatewayConfig},
@@ -84,11 +86,15 @@ impl KahoClient {
 #[derive(Clone, Debug)]
 pub struct KahoClientBuilder {
     token: Option<String>,
+    gateway_timeouts: Option<(Duration, Duration)>,
 }
 
 impl Default for KahoClientBuilder {
     fn default() -> Self {
-        Self { token: None }
+        Self {
+            token: None,
+            gateway_timeouts: None,
+        }
     }
 }
 
@@ -104,6 +110,15 @@ impl KahoClientBuilder {
         self
     }
 
+    /// Override the gateway connection and authentication timeouts.
+    ///
+    /// This is useful on networks where Stoat's WebSocket handshake occasionally takes longer
+    /// than the defaults.
+    pub fn gateway_timeouts(mut self, connect: Duration, authentication: Duration) -> Self {
+        self.gateway_timeouts = Some((connect, authentication));
+        self
+    }
+
     /// Build the client.
     pub fn build(self) -> KahoResult<KahoClient> {
         let token = self
@@ -111,7 +126,10 @@ impl KahoClientBuilder {
             .ok_or_else(|| KahoError::Other("Token must be provided".into()))?;
 
         let http_config = HttpConfig::new(&token)?;
-        let gateway_config = GatewayConfig::new(&token)?;
+        let mut gateway_config = GatewayConfig::new(&token)?;
+        if let Some((connect, authentication)) = self.gateway_timeouts {
+            gateway_config = gateway_config.with_timeouts(connect, authentication);
+        }
 
         let http = HttpClient::new(http_config)?;
         let gateway = GatewayClient::new(gateway_config);

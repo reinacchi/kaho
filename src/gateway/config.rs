@@ -56,8 +56,12 @@ impl GatewayConfig {
         }
 
         Ok(Self {
-            connect_timeout: Duration::from_secs(15),
-            authentication_timeout: Duration::from_secs(15),
+            // Stoat's public gateway can occasionally take longer than a short REST-style
+            // connection timeout to complete DNS, TLS, and the WebSocket upgrade. Keep this
+            // deliberately generous so transient service/network slowness does not cause Kaho
+            // itself to tear down an otherwise viable connection attempt.
+            connect_timeout: Duration::from_secs(60),
+            authentication_timeout: Duration::from_secs(30),
             heartbeat_interval: Duration::from_secs(15),
             heartbeat_timeout: Duration::from_secs(30),
             max_reconnect_attempts: 0,
@@ -76,6 +80,17 @@ impl GatewayConfig {
     /// Override the gateway WebSocket URL.
     pub fn with_ws_url(mut self, ws_url: impl Into<String>) -> Self {
         self.ws_url = ws_url.into();
+        self
+    }
+
+    /// Override gateway connection and authentication timeouts.
+    ///
+    /// The connection timeout covers DNS resolution, TCP/TLS setup, and the WebSocket upgrade.
+    /// The authentication timeout starts after the WebSocket has connected and Kaho has sent the
+    /// `Authenticate` event.
+    pub fn with_timeouts(mut self, connect: Duration, authentication: Duration) -> Self {
+        self.connect_timeout = connect;
+        self.authentication_timeout = authentication;
         self
     }
 
@@ -126,6 +141,8 @@ fn default_gateway_url() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::GatewayConfig;
 
     #[test]
@@ -137,6 +154,14 @@ mod tests {
         assert!(config.ws_url.contains("ready=servers"));
         assert!(config.ws_url.contains("ready=members"));
         assert!(!config.ws_url.contains("ready=emojis"));
+    }
+
+    #[test]
+    fn gateway_timeouts_tolerate_slow_stoat_handshakes() {
+        let config = GatewayConfig::new("token").expect("valid config");
+
+        assert_eq!(config.connect_timeout, Duration::from_secs(60));
+        assert_eq!(config.authentication_timeout, Duration::from_secs(30));
     }
 
     #[test]
