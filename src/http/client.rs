@@ -895,7 +895,18 @@ impl HttpClient {
         role_id: &str,
         payload: OverrideField,
     ) -> KahoResult {
-        self.put(
+        self.set_channel_permissions_returning(channel_id, role_id, payload)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn set_channel_permissions_returning(
+        &self,
+        channel_id: &str,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Channel> {
+        self.put_return(
             Endpoint::ChannelPermission(channel_id.to_owned(), role_id.to_owned()).path(),
             payload,
         )
@@ -908,7 +919,17 @@ impl HttpClient {
         channel_id: &str,
         payload: OverrideField,
     ) -> KahoResult {
-        self.put(
+        self.set_channel_default_permissions_returning(channel_id, payload)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn set_channel_default_permissions_returning(
+        &self,
+        channel_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Channel> {
+        self.put_return(
             Endpoint::ChannelPermissionDefault(channel_id.to_owned()).path(),
             payload,
         )
@@ -1330,7 +1351,18 @@ impl HttpClient {
         role_id: &str,
         payload: OverrideField,
     ) -> KahoResult {
-        self.put(
+        self.set_server_permissions_returning(server_id, role_id, payload)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn set_server_permissions_returning(
+        &self,
+        server_id: &str,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Server> {
+        self.put_return(
             Endpoint::ServerPermission(server_id.to_owned(), role_id.to_owned()).path(),
             payload,
         )
@@ -1343,7 +1375,17 @@ impl HttpClient {
         server_id: &str,
         payload: OverrideField,
     ) -> KahoResult {
-        self.put(
+        self.set_server_default_permissions_returning(server_id, payload)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn set_server_default_permissions_returning(
+        &self,
+        server_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Server> {
+        self.put_return(
             Endpoint::ServerPermissionDefault(server_id.to_owned()).path(),
             payload,
         )
@@ -1356,7 +1398,17 @@ impl HttpClient {
         server_id: &str,
         payload: impl Into<RoleRanksUpdate>,
     ) -> KahoResult {
-        self.patch_empty(
+        self.set_server_role_ranks_returning(server_id, payload)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn set_server_role_ranks_returning(
+        &self,
+        server_id: &str,
+        payload: impl Into<RoleRanksUpdate>,
+    ) -> KahoResult<Server> {
+        self.patch(
             Endpoint::ServerRoleRanks(server_id.to_owned()).path(),
             payload.into(),
         )

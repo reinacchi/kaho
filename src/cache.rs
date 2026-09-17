@@ -106,6 +106,34 @@ impl CacheInner {
         self.retain_messages(|message| message.channel.as_str() != channel_id);
     }
 
+    fn insert_channel(&mut self, channel: Channel) -> Option<Channel> {
+        let channel_id = channel.id().to_owned();
+
+        if let Some(server_id) = channel_server_id(&channel) {
+            if let Some(server) = self.servers.get_mut(server_id) {
+                if !server.channels.iter().any(|id| id == &channel_id) {
+                    server.channels.push(channel_id.clone());
+                }
+            }
+        }
+
+        self.channels.insert(channel_id, channel)
+    }
+
+    fn remove_channel(&mut self, channel_id: &str) -> Option<Channel> {
+        let removed = self.channels.remove(channel_id);
+        self.remove_messages_for_channel(channel_id);
+
+        for server in self.servers.values_mut() {
+            server.channels.retain(|id| id.as_str() != channel_id);
+            for category in &mut server.categories {
+                category.channels.retain(|id| id.as_str() != channel_id);
+            }
+        }
+
+        removed
+    }
+
     fn retain_messages(&mut self, mut keep: impl FnMut(&Message) -> bool) {
         self.messages.retain(|_, message| keep(message));
         let messages = &self.messages;
@@ -147,7 +175,7 @@ impl CacheInner {
                 }
                 for value in &ready.channels {
                     if let Some(channel) = decode_ready::<Channel>(value, "channel") {
-                        self.channels.insert(channel.id().to_owned(), channel);
+                        self.insert_channel(channel);
                     }
                 }
                 for value in &ready.members {
@@ -184,8 +212,7 @@ impl CacheInner {
                 self.remove_message(&event.id);
             }
             GatewayEvent::ChannelCreate(channel) => {
-                self.channels
-                    .insert(channel.id().to_owned(), channel.clone());
+                self.insert_channel(channel.clone());
             }
             GatewayEvent::ChannelUpdate(event) => {
                 let evict = self
@@ -198,8 +225,7 @@ impl CacheInner {
                 }
             }
             GatewayEvent::ChannelDelete(event) => {
-                self.channels.remove(&event.id);
-                self.remove_messages_for_channel(&event.id);
+                self.remove_channel(&event.id);
             }
             GatewayEvent::ChannelGroupJoin(event) | GatewayEvent::ChannelGroupLeave(event) => {
                 // Group membership is embedded in the channel object. Refetch it
@@ -575,16 +601,14 @@ impl Cache {
 
     /// Insert or replace a channel in the cache.
     pub async fn insert_channel(&self, channel: Channel) -> Option<Channel> {
-        let id = channel.id().to_owned();
-        self.inner.write().await.channels.insert(id, channel)
+        self.inner.write().await.insert_channel(channel)
     }
 
     /// Insert or replace several channels.
     pub async fn insert_channels(&self, channels: impl IntoIterator<Item = Channel>) {
         let mut inner = self.inner.write().await;
         for channel in channels {
-            let id = channel.id().to_owned();
-            inner.channels.insert(id, channel);
+            inner.insert_channel(channel);
         }
     }
 
@@ -600,11 +624,7 @@ impl Cache {
 
     /// Remove a cached channel by ID and evict its cached messages.
     pub async fn remove_channel(&self, id: impl AsRef<str>) -> Option<Channel> {
-        let id = id.as_ref();
-        let mut inner = self.inner.write().await;
-        let removed = inner.channels.remove(id);
-        inner.remove_messages_for_channel(id);
-        removed
+        self.inner.write().await.remove_channel(id.as_ref())
     }
 
     /// Insert or replace a server member in the cache.
@@ -816,8 +836,13 @@ fn event_field_to_json(field: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::Cache;
-    use crate::models::Message;
+    use crate::models::{
+        Category, Channel, ChannelDeleteEvent, ChannelUpdateEvent, GatewayEvent, Message, Server,
+        TextChannel,
+    };
 
     fn message(id: &str) -> Message {
         Message {
@@ -831,6 +856,22 @@ mod tests {
             mentions: Vec::new(),
             replies: Vec::new(),
         }
+    }
+
+    fn text_channel(id: &str, server_id: &str) -> Channel {
+        Channel::TextChannel(TextChannel {
+            id: id.to_owned(),
+            server: server_id.to_owned(),
+            name: "private".to_owned(),
+            description: None,
+            icon: None,
+            last_message_id: None,
+            nsfw: false,
+            extra: json!({
+                "default_permissions": {"a": 0, "d": 1},
+                "role_permissions": {"role": {"a": 1, "d": 0}}
+            }),
+        })
     }
 
     #[tokio::test]
@@ -856,5 +897,73 @@ mod tests {
 
         assert_eq!(cache.message_capacity().await, 3);
         assert_eq!(cache.counts().await.messages, 0);
+    }
+
+    #[tokio::test]
+    async fn channel_cache_keeps_server_relationships_coherent() {
+        let cache = Cache::new();
+        let mut server = Server::default();
+        server.id = "server".to_owned();
+        server.categories.push(Category {
+            id: "category".to_owned(),
+            title: "Private".to_owned(),
+            channels: vec!["channel".to_owned()],
+        });
+        cache.insert_server(server).await;
+
+        cache
+            .update_from_event(&GatewayEvent::ChannelCreate(text_channel(
+                "channel", "server",
+            )))
+            .await;
+        let server = cache
+            .server("server")
+            .await
+            .expect("server should be cached");
+        assert_eq!(server.channels, vec!["channel".to_owned()]);
+
+        cache
+            .update_from_event(&GatewayEvent::ChannelDelete(ChannelDeleteEvent {
+                id: "channel".to_owned(),
+            }))
+            .await;
+
+        let server = cache
+            .server("server")
+            .await
+            .expect("server should remain cached");
+        assert!(server.channels.is_empty());
+        assert!(server.categories[0].channels.is_empty());
+        assert!(cache.channel("channel").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn channel_update_merges_permission_overrides() {
+        let cache = Cache::new();
+        cache
+            .insert_channel(text_channel("channel", "server"))
+            .await;
+
+        cache
+            .update_from_event(&GatewayEvent::ChannelUpdate(ChannelUpdateEvent {
+                id: "channel".to_owned(),
+                data: json!({
+                    "default_permissions": {"a": 1, "d": 0},
+                    "role_permissions": {"role": {"a": 3, "d": 0}}
+                }),
+                clear: Vec::new(),
+            }))
+            .await;
+
+        let Channel::TextChannel(channel) = cache
+            .channel("channel")
+            .await
+            .expect("channel should remain cached")
+        else {
+            panic!("expected a text channel");
+        };
+
+        assert_eq!(channel.extra["default_permissions"]["a"], 1);
+        assert_eq!(channel.extra["role_permissions"]["role"]["a"], 3);
     }
 }

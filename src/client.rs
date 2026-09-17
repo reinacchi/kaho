@@ -13,9 +13,9 @@ use crate::{
     models::{
         Channel, ChannelCloseQuery, ChannelCreate, ChannelUpdate, FetchMembersQuery,
         FetchMessageQuery, GatewayEvent, GroupCreate, Member, MemberList, MemberUpdate, Message,
-        MessageEdit, MessageSearch, MessageSend, Role, RoleCreate, RoleCreateResponse,
-        RoleRanksUpdate, RoleUpdate, SendFriendRequest, Server, ServerBans, ServerCreate,
-        ServerEdit, User, UserUpdate,
+        MessageEdit, MessageSearch, MessageSend, OverrideField, Role, RoleCreate,
+        RoleCreateResponse, RoleRanksUpdate, RoleUpdate, SendFriendRequest, Server, ServerBans,
+        ServerCreate, ServerEdit, User, UserUpdate,
     },
 };
 
@@ -296,16 +296,46 @@ impl KahoClient {
         Ok(())
     }
 
-    /// Reorder server roles and update cached role ranks immediately.
+    /// Set permissions for a server role and replace the cached server with Stoat's response.
+    pub async fn set_server_permissions_cached(
+        &self,
+        server_id: &str,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Server> {
+        let server = self
+            .http
+            .set_server_permissions_returning(server_id, role_id, payload)
+            .await?;
+        self.cache.insert_server(server.clone()).await;
+        Ok(server)
+    }
+
+    /// Set default server permissions and replace the cached server with Stoat's response.
+    pub async fn set_server_default_permissions_cached(
+        &self,
+        server_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Server> {
+        let server = self
+            .http
+            .set_server_default_permissions_returning(server_id, payload)
+            .await?;
+        self.cache.insert_server(server.clone()).await;
+        Ok(server)
+    }
+
+    /// Reorder server roles and replace the cached server with Stoat's response.
     pub async fn set_server_role_ranks_cached(
         &self,
         server_id: &str,
         payload: impl Into<RoleRanksUpdate>,
     ) -> KahoResult {
-        let payload = payload.into();
-        let ranks = payload.ranks.clone();
-        self.http.set_server_role_ranks(server_id, payload).await?;
-        self.cache.set_role_ranks(server_id, &ranks).await;
+        let server = self
+            .http
+            .set_server_role_ranks_returning(server_id, payload)
+            .await?;
+        self.cache.insert_server(server).await;
         Ok(())
     }
 
@@ -348,6 +378,35 @@ impl KahoClient {
         payload: impl Into<ChannelUpdate>,
     ) -> KahoResult<Channel> {
         let channel = self.http.edit_channel(channel_id, payload).await?;
+        self.cache.insert_channel(channel.clone()).await;
+        Ok(channel)
+    }
+
+    /// Set permissions for a channel role and replace the cached channel with Stoat's response.
+    pub async fn set_channel_permissions_cached(
+        &self,
+        channel_id: &str,
+        role_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Channel> {
+        let channel = self
+            .http
+            .set_channel_permissions_returning(channel_id, role_id, payload)
+            .await?;
+        self.cache.insert_channel(channel.clone()).await;
+        Ok(channel)
+    }
+
+    /// Set default channel permissions and replace the cached channel with Stoat's response.
+    pub async fn set_channel_default_permissions_cached(
+        &self,
+        channel_id: &str,
+        payload: OverrideField,
+    ) -> KahoResult<Channel> {
+        let channel = self
+            .http
+            .set_channel_default_permissions_returning(channel_id, payload)
+            .await?;
         self.cache.insert_channel(channel.clone()).await;
         Ok(channel)
     }
