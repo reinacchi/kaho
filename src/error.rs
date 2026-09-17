@@ -24,6 +24,38 @@ pub enum KahoError {
     #[error("Request failed with non-success status: {0:?}")]
     FailedRequest(Response),
 
+    /// Timed out while establishing a gateway WebSocket connection.
+    #[error("Gateway connection timed out")]
+    GatewayConnectTimeout,
+
+    /// Timed out while waiting for Stoat to authenticate the gateway session.
+    #[error("Gateway authentication timed out")]
+    GatewayAuthenticationTimeout,
+
+    /// Timed out while writing a packet to the gateway WebSocket.
+    #[error("Gateway write timed out")]
+    GatewayWriteTimeout,
+
+    /// The gateway did not return a Pong within the configured heartbeat timeout.
+    #[error("Gateway heartbeat timed out")]
+    GatewayHeartbeatTimeout,
+
+    /// The current gateway session was logged out or its token was invalidated.
+    #[error("Gateway session was logged out")]
+    GatewayLoggedOut,
+
+    /// A client event could not be queued within the configured timeout.
+    #[error("Gateway outbound event queue is full")]
+    GatewaySendQueueTimeout,
+
+    /// The bounded gateway event queue overflowed because the application did not consume events
+    /// quickly enough.
+    #[error("Gateway event queue overflowed; {dropped} event(s) were dropped")]
+    GatewayEventQueueOverflow {
+        /// Number of events dropped since the stream last reported an overflow.
+        dropped: u64,
+    },
+
     /// Represents the web socket variant for this public enum.
     #[error("WebSocket error: {0}")]
     WebSocket(#[from] WebSocketError),
@@ -59,4 +91,9 @@ pub enum AuthError {
     /// Represents the already authenticated variant for this public enum.
     #[error("Session already active")]
     AlreadyAuthenticated,
+
+    /// A newer gateway authentication error not yet modelled by Kaho.
+    #[serde(other)]
+    #[error("Unknown authentication error")]
+    Unknown,
 }

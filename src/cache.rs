@@ -6,7 +6,11 @@
 //! if a partial update cannot be applied safely, the stale entry is evicted so
 //! the next cache-first client lookup falls back to REST.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    mem::replace,
+    sync::Arc,
+};
 
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{from_value, to_value, Value};
@@ -24,13 +28,23 @@ pub struct Cache {
     inner: Arc<RwLock<CacheInner>>,
 }
 
-#[derive(Clone, Debug, Default)]
+const DEFAULT_MESSAGE_CACHE_CAPACITY: usize = 10_000;
+
+#[derive(Clone, Debug)]
 struct CacheInner {
     users: HashMap<Id, User>,
     servers: HashMap<Id, Server>,
     channels: HashMap<Id, Channel>,
     members: HashMap<MemberId, Member>,
     messages: HashMap<Id, Message>,
+    message_order: VecDeque<Id>,
+    message_capacity: usize,
+}
+
+impl Default for CacheInner {
+    fn default() -> Self {
+        Self::with_message_capacity(DEFAULT_MESSAGE_CACHE_CAPACITY)
+    }
 }
 
 /// Snapshot of cache sizes for diagnostics and tests.
@@ -51,6 +65,62 @@ pub struct CacheCounts {
 }
 
 impl CacheInner {
+    fn with_message_capacity(message_capacity: usize) -> Self {
+        Self {
+            users: HashMap::new(),
+            servers: HashMap::new(),
+            channels: HashMap::new(),
+            members: HashMap::new(),
+            messages: HashMap::new(),
+            message_order: VecDeque::new(),
+            message_capacity,
+        }
+    }
+
+    fn insert_message(&mut self, message: Message) -> Option<Message> {
+        let id = message.id.clone();
+
+        if self.message_capacity == 0 {
+            return self.messages.remove(&id);
+        }
+
+        // Updating an existing message keeps its original FIFO position. Avoid scanning the
+        // entire order queue for every normal Message event; that would make cache ingestion
+        // O(cache_size) and could itself create gateway latency under load.
+        if let Some(current) = self.messages.get_mut(&id) {
+            return Some(replace(current, message));
+        }
+
+        self.messages.insert(id.clone(), message);
+        self.message_order.push_back(id);
+        self.enforce_message_capacity();
+        None
+    }
+
+    fn remove_message(&mut self, message_id: &str) -> Option<Message> {
+        self.message_order.retain(|id| id.as_str() != message_id);
+        self.messages.remove(message_id)
+    }
+
+    fn remove_messages_for_channel(&mut self, channel_id: &str) {
+        self.retain_messages(|message| message.channel.as_str() != channel_id);
+    }
+
+    fn retain_messages(&mut self, mut keep: impl FnMut(&Message) -> bool) {
+        self.messages.retain(|_, message| keep(message));
+        let messages = &self.messages;
+        self.message_order.retain(|id| messages.contains_key(id));
+    }
+
+    fn enforce_message_capacity(&mut self) {
+        while self.messages.len() > self.message_capacity {
+            let Some(oldest) = self.message_order.pop_front() else {
+                break;
+            };
+            self.messages.remove(&oldest);
+        }
+    }
+
     fn apply_event(&mut self, event: &GatewayEvent) {
         match event {
             GatewayEvent::Bulk { v } => {
@@ -59,8 +129,10 @@ impl CacheInner {
                 }
             }
             GatewayEvent::Ready(ready) => {
-                // Ready is the authoritative snapshot for a new gateway session.
-                *self = Self::default();
+                // Ready is the authoritative snapshot for a new gateway session. Preserve the
+                // configured message capacity while clearing state from the previous session.
+                let message_capacity = self.message_capacity;
+                *self = Self::with_message_capacity(message_capacity);
 
                 for value in &ready.users {
                     if let Some(user) = decode_ready::<User>(value, "user") {
@@ -85,7 +157,7 @@ impl CacheInner {
                 }
             }
             GatewayEvent::Message(message) => {
-                self.messages.insert(message.id.clone(), message.clone());
+                self.insert_message(message.clone());
             }
             GatewayEvent::MessageUpdate(event) => {
                 let evict = self
@@ -94,22 +166,22 @@ impl CacheInner {
                     .map(|message| !merge_partial(message, &event.data, &[]))
                     .unwrap_or(false);
                 if evict {
-                    self.messages.remove(&event.id);
+                    self.remove_message(&event.id);
                 }
             }
             GatewayEvent::MessageAppend(event) => {
                 // Append payloads have field-specific semantics. Evict rather than
                 // risk serving a partially updated message.
-                self.messages.remove(&event.id);
+                self.remove_message(&event.id);
             }
             GatewayEvent::MessageDelete(event) => {
-                self.messages.remove(&event.id);
+                self.remove_message(&event.id);
             }
             GatewayEvent::MessageReact(event) | GatewayEvent::MessageUnreact(event) => {
-                self.messages.remove(&event.id);
+                self.remove_message(&event.id);
             }
             GatewayEvent::MessageRemoveReaction(event) => {
-                self.messages.remove(&event.id);
+                self.remove_message(&event.id);
             }
             GatewayEvent::ChannelCreate(channel) => {
                 self.channels
@@ -127,6 +199,7 @@ impl CacheInner {
             }
             GatewayEvent::ChannelDelete(event) => {
                 self.channels.remove(&event.id);
+                self.remove_messages_for_channel(&event.id);
             }
             GatewayEvent::ChannelGroupJoin(event) | GatewayEvent::ChannelGroupLeave(event) => {
                 // Group membership is embedded in the channel object. Refetch it
@@ -149,10 +222,19 @@ impl CacheInner {
                 }
             }
             GatewayEvent::ServerDelete(event) => {
+                let mut channel_ids: HashSet<Id> = self
+                    .channels
+                    .iter()
+                    .filter_map(|(id, channel)| {
+                        (channel_server_id(channel) == Some(event.id.as_str())).then(|| id.clone())
+                    })
+                    .collect();
                 if let Some(server) = self.servers.remove(&event.id) {
-                    for channel_id in server.channels {
-                        self.channels.remove(&channel_id);
-                    }
+                    channel_ids.extend(server.channels);
+                }
+                for channel_id in channel_ids {
+                    self.channels.remove(&channel_id);
+                    self.remove_messages_for_channel(&channel_id);
                 }
                 self.members
                     .retain(|id, _| id.server.as_str() != event.id.as_str());
@@ -249,6 +331,33 @@ impl CacheInner {
                 self.users.remove(&event.user_id);
                 self.members
                     .retain(|id, _| id.user.as_str() != event.user_id.as_str());
+
+                self.retain_messages(|message| message.author.as_str() != event.user_id.as_str());
+
+                let direct_channels: Vec<Id> = self
+                    .channels
+                    .iter()
+                    .filter_map(|(id, channel)| match channel {
+                        Channel::DirectMessage(channel)
+                            if channel
+                                .recipients
+                                .iter()
+                                .any(|recipient| recipient == &event.user_id) =>
+                        {
+                            Some(id.clone())
+                        }
+                        Channel::SavedMessages(channel)
+                            if channel.user.as_str() == event.user_id.as_str() =>
+                        {
+                            Some(id.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                for channel_id in direct_channels {
+                    self.channels.remove(&channel_id);
+                    self.remove_messages_for_channel(&channel_id);
+                }
             }
             _ => {}
         }
@@ -374,10 +483,20 @@ impl Cache {
         inner
             .members
             .retain(|member_id, _| member_id.server.as_str() != id);
+
+        let mut channel_ids: HashSet<Id> = inner
+            .channels
+            .iter()
+            .filter_map(|(channel_id, channel)| {
+                (channel_server_id(channel) == Some(id)).then(|| channel_id.clone())
+            })
+            .collect();
         if let Some(server) = &removed {
-            for channel_id in &server.channels {
-                inner.channels.remove(channel_id);
-            }
+            channel_ids.extend(server.channels.iter().cloned());
+        }
+        for channel_id in channel_ids {
+            inner.channels.remove(&channel_id);
+            inner.remove_messages_for_channel(&channel_id);
         }
         removed
     }
@@ -479,9 +598,13 @@ impl Cache {
         self.inner.read().await.channels.values().cloned().collect()
     }
 
-    /// Remove a cached channel by ID.
+    /// Remove a cached channel by ID and evict its cached messages.
     pub async fn remove_channel(&self, id: impl AsRef<str>) -> Option<Channel> {
-        self.inner.write().await.channels.remove(id.as_ref())
+        let id = id.as_ref();
+        let mut inner = self.inner.write().await;
+        let removed = inner.channels.remove(id);
+        inner.remove_messages_for_channel(id);
+        removed
     }
 
     /// Insert or replace a server member in the cache.
@@ -543,20 +666,16 @@ impl Cache {
         })
     }
 
-    /// Insert or replace a message in the cache.
+    /// Insert or replace a message in the bounded message cache.
     pub async fn insert_message(&self, message: Message) -> Option<Message> {
-        self.inner
-            .write()
-            .await
-            .messages
-            .insert(message.id.clone(), message)
+        self.inner.write().await.insert_message(message)
     }
 
-    /// Insert or replace several messages.
+    /// Insert or replace several messages in the bounded message cache.
     pub async fn insert_messages(&self, messages: impl IntoIterator<Item = Message>) {
         let mut inner = self.inner.write().await;
         for message in messages {
-            inner.messages.insert(message.id.clone(), message);
+            inner.insert_message(message);
         }
     }
 
@@ -572,7 +691,22 @@ impl Cache {
 
     /// Remove a cached message by ID.
     pub async fn remove_message(&self, id: impl AsRef<str>) -> Option<Message> {
-        self.inner.write().await.messages.remove(id.as_ref())
+        self.inner.write().await.remove_message(id.as_ref())
+    }
+
+    /// Change the maximum number of messages retained by the cache.
+    ///
+    /// Setting the capacity to `0` disables message caching. Existing entries are evicted
+    /// immediately when the capacity is reduced.
+    pub async fn set_message_capacity(&self, capacity: usize) {
+        let mut inner = self.inner.write().await;
+        inner.message_capacity = capacity;
+        inner.enforce_message_capacity();
+    }
+
+    /// Return the configured message cache capacity.
+    pub async fn message_capacity(&self) -> usize {
+        self.inner.read().await.message_capacity
     }
 
     /// Return the number of cached values per model type.
@@ -592,9 +726,19 @@ impl Cache {
         }
     }
 
-    /// Clear all cached values.
+    /// Clear all cached values while preserving cache capacity settings.
     pub async fn clear(&self) {
-        *self.inner.write().await = CacheInner::default();
+        let mut inner = self.inner.write().await;
+        let message_capacity = inner.message_capacity;
+        *inner = CacheInner::with_message_capacity(message_capacity);
+    }
+}
+
+fn channel_server_id(channel: &Channel) -> Option<&str> {
+    match channel {
+        Channel::TextChannel(channel) => Some(channel.server.as_str()),
+        Channel::VoiceChannel(channel) => Some(channel.server.as_str()),
+        _ => None,
     }
 }
 
@@ -668,4 +812,49 @@ fn event_field_to_json(field: &str) -> String {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cache;
+    use crate::models::Message;
+
+    fn message(id: &str) -> Message {
+        Message {
+            id: id.to_owned(),
+            nonuce: None,
+            channel: "channel".to_owned(),
+            author: "user".to_owned(),
+            content: id.to_owned(),
+            attachments: Vec::new(),
+            embeds: None,
+            mentions: Vec::new(),
+            replies: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn message_cache_enforces_capacity() {
+        let cache = Cache::new();
+        cache.set_message_capacity(2).await;
+        cache.insert_message(message("one")).await;
+        cache.insert_message(message("two")).await;
+        cache.insert_message(message("three")).await;
+
+        assert!(cache.message("one").await.is_none());
+        assert!(cache.message("two").await.is_some());
+        assert!(cache.message("three").await.is_some());
+        assert_eq!(cache.counts().await.messages, 2);
+    }
+
+    #[tokio::test]
+    async fn clear_preserves_message_capacity() {
+        let cache = Cache::new();
+        cache.set_message_capacity(3).await;
+        cache.insert_message(message("one")).await;
+        cache.clear().await;
+
+        assert_eq!(cache.message_capacity().await, 3);
+        assert_eq!(cache.counts().await.messages, 0);
+    }
 }

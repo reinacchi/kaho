@@ -8,7 +8,9 @@ use {
     },
 };
 
-/// Tracks Stoat REST rate-limit buckets and waits before requests when needed.
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
+
+/// Tracks Stoat REST rate-limit buckets and reserves capacity before requests are sent.
 #[derive(Debug)]
 pub struct RateLimiter {
     state: Mutex<RateLimitState>,
@@ -25,7 +27,6 @@ impl Default for RateLimiter {
 #[derive(Debug, Default)]
 struct RateLimitState {
     buckets: HashMap<String, BucketState>,
-    routes: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,69 +43,104 @@ pub struct RateLimitedResponse {
 }
 
 impl RateLimiter {
-    /// Wait until the route's known bucket has capacity.
+    /// Wait for and reserve one request slot for a route.
+    ///
+    /// This compatibility method now reserves capacity atomically. Prefer [`RateLimiter::acquire`]
+    /// when the caller needs to observe how long it waited.
     pub async fn wait(&self, method: &Method, path: &str) {
+        let _ = self.acquire(method, path).await;
+    }
+
+    /// Atomically reserve one request slot for a route, waiting for the current fixed window to
+    /// reset when no capacity remains.
+    ///
+    /// The returned duration is the total amount of time spent waiting locally.
+    pub async fn acquire(&self, method: &Method, path: &str) -> Duration {
         let route = route_key(method, path);
+        let fallback = static_bucket(method, path);
+        let mut total_wait = Duration::ZERO;
 
         loop {
-            let sleep_for = {
-                let state = self.state.lock().await;
-                state
-                    .routes
-                    .get(&route)
-                    .or(Some(&route))
-                    .and_then(|bucket| state.buckets.get(bucket))
-                    .and_then(|bucket| bucket.delay_until_available())
+            let wait_for = {
+                let mut state = self.state.lock().await;
+                let now = Instant::now();
+                let bucket = state.buckets.entry(route.clone()).or_insert_with(|| {
+                    let limit = fallback.limit;
+                    BucketState {
+                        limit,
+                        remaining: limit,
+                        reset_at: now + RATE_LIMIT_WINDOW,
+                    }
+                });
+
+                if now >= bucket.reset_at {
+                    bucket.remaining = bucket.limit;
+                    bucket.reset_at = now + RATE_LIMIT_WINDOW;
+                }
+
+                if bucket.remaining > 0 {
+                    bucket.remaining -= 1;
+                    None
+                } else {
+                    Some(bucket.reset_at.saturating_duration_since(now))
+                }
             };
 
-            match sleep_for {
-                Some(delay) if !delay.is_zero() => sleep(delay).await,
-                _ => return,
+            match wait_for {
+                Some(delay) if !delay.is_zero() => {
+                    total_wait += delay;
+                    sleep(delay).await;
+                }
+                _ => return total_wait,
             }
         }
     }
 
     /// Update tracked bucket state from Stoat rate-limit headers.
+    ///
+    /// Local reservations are kept conservatively when concurrent responses arrive out of order,
+    /// preventing an older response from increasing the amount of capacity Kaho believes remains.
     pub async fn update_from_headers(&self, method: &Method, path: &str, headers: &HeaderMap) {
-        let Some(bucket_id) = header_str(headers, "X-RateLimit-Bucket").map(ToOwned::to_owned)
-        else {
+        // The server bucket ID is useful protocol metadata, but Kaho deliberately keeps local
+        // reservations under its canonical documented route key. Moving a live bucket to a new
+        // key when the first concurrent response arrives would temporarily forget reservations
+        // made by the other in-flight requests and could overshoot the limit.
+        if header_str(headers, "X-RateLimit-Bucket").is_none() {
             return;
-        };
+        }
 
-        let limit = header_u32(headers, "X-RateLimit-Limit");
-        let remaining = header_u32(headers, "X-RateLimit-Remaining");
-        let reset_after = header_u64(headers, "X-RateLimit-Reset-After");
+        let header_limit = header_u32(headers, "X-RateLimit-Limit");
+        let header_remaining = header_u32(headers, "X-RateLimit-Remaining");
+        let header_reset_after = header_u64(headers, "X-RateLimit-Reset-After");
+        let fallback = static_bucket(method, path);
+        let route = route_key(method, path);
+        let now = Instant::now();
 
         let mut state = self.state.lock().await;
-        let route = route_key(method, path);
-        state.routes.insert(route, bucket_id.clone());
+        let previous = state.buckets.get(&route).cloned();
+        let limit = header_limit
+            .or_else(|| previous.as_ref().map(|bucket| bucket.limit))
+            .unwrap_or(fallback.limit);
+        let reset_at = header_reset_after
+            .map(|milliseconds| now + Duration::from_millis(milliseconds))
+            .or_else(|| previous.as_ref().map(|bucket| bucket.reset_at))
+            .unwrap_or(now + RATE_LIMIT_WINDOW);
+        let reported_remaining = header_remaining
+            .or_else(|| previous.as_ref().map(|bucket| bucket.remaining))
+            .unwrap_or(limit)
+            .min(limit);
 
-        let previous = state.buckets.get(&bucket_id).cloned();
-        let fallback = static_bucket(method, path);
-        let limit = limit
-            .or_else(|| fallback.map(|bucket| bucket.limit))
-            .or(previous.as_ref().map(|bucket| bucket.limit))
-            .unwrap_or(1);
-        let remaining = remaining
-            .or(previous.as_ref().map(|bucket| bucket.remaining))
-            .unwrap_or(limit);
-        let reset_after = reset_after
-            .or_else(|| {
-                previous.as_ref().map(|bucket| {
-                    bucket
-                        .reset_at
-                        .saturating_duration_since(Instant::now())
-                        .as_millis() as u64
-                })
-            })
-            .unwrap_or(10_000);
+        let remaining = match previous {
+            Some(previous) if previous.reset_at > now => previous.remaining.min(reported_remaining),
+            _ => reported_remaining,
+        };
 
         state.buckets.insert(
-            bucket_id,
+            route,
             BucketState {
                 limit,
                 remaining,
-                reset_at: Instant::now() + Duration::from_millis(reset_after),
+                reset_at,
             },
         );
     }
@@ -113,37 +149,21 @@ impl RateLimiter {
     pub async fn update_retry_after(&self, method: &Method, path: &str, retry_after_ms: u64) {
         let route = route_key(method, path);
         let fallback = static_bucket(method, path);
-        let bucket_id = fallback
-            .as_ref()
-            .map(|bucket| bucket.name.to_owned())
-            .unwrap_or_else(|| route.clone());
 
         let mut state = self.state.lock().await;
-        let bucket_id = state.routes.get(&route).cloned().unwrap_or(bucket_id);
-        state.routes.insert(route, bucket_id.clone());
+        let limit = state
+            .buckets
+            .get(&route)
+            .map(|bucket| bucket.limit)
+            .unwrap_or(fallback.limit);
         state.buckets.insert(
-            bucket_id,
+            route,
             BucketState {
-                limit: fallback.map(|bucket| bucket.limit).unwrap_or(1),
+                limit,
                 remaining: 0,
                 reset_at: Instant::now() + Duration::from_millis(retry_after_ms),
             },
         );
-    }
-}
-
-impl BucketState {
-    fn delay_until_available(&self) -> Option<Duration> {
-        if self.remaining > 0 {
-            return None;
-        }
-
-        let now = Instant::now();
-        if now >= self.reset_at {
-            return None;
-        }
-
-        Some(self.reset_at - now)
     }
 }
 
@@ -153,32 +173,31 @@ struct StaticBucket {
     limit: u32,
 }
 
-fn static_bucket(method: &Method, path: &str) -> Option<StaticBucket> {
+fn static_bucket(method: &Method, path: &str) -> StaticBucket {
     let path = clean_url_path(path);
 
-    if method.as_str() == Method::PATCH.as_str() && matches_pattern(&path, "/users/:id") {
-        return Some(StaticBucket {
+    if method == Method::PATCH && matches_pattern(&path, "/users/:id") {
+        return StaticBucket {
             name: "PATCH /users/:id",
             limit: 2,
-        });
+        };
     }
 
-    if method.as_str() == Method::POST.as_str() && matches_pattern(&path, "/channels/:id/messages")
-    {
-        return Some(StaticBucket {
+    if method == Method::POST && matches_pattern(&path, "/channels/:id/messages") {
+        return StaticBucket {
             name: "POST /channels/:id/messages",
             limit: 10,
-        });
+        };
     }
 
-    if method.as_str() == Method::DELETE.as_str() && path.starts_with("/auth") {
-        return Some(StaticBucket {
+    if method == Method::DELETE && path.starts_with("/auth") {
+        return StaticBucket {
             name: "DELETE /auth",
             limit: 255,
-        });
+        };
     }
 
-    let bucket = if matches_pattern(&path, "/users/:id/default_avatar") {
+    if matches_pattern(&path, "/users/:id/default_avatar") {
         StaticBucket {
             name: "/users/:id/default_avatar",
             limit: 255,
@@ -228,15 +247,11 @@ fn static_bucket(method: &Method, path: &str) -> Option<StaticBucket> {
             name: "/*",
             limit: 20,
         }
-    };
-
-    Some(bucket)
+    }
 }
 
 fn route_key(method: &Method, path: &str) -> String {
-    static_bucket(method, path)
-        .map(|bucket| bucket.name.to_owned())
-        .unwrap_or_else(|| format!("{} {}", method.as_str(), clean_url_path(path)))
+    static_bucket(method, path).name.to_owned()
 }
 
 fn clean_url_path(path: &str) -> String {
@@ -269,4 +284,71 @@ fn header_u32(headers: &HeaderMap, name: &str) -> Option<u32> {
 
 fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
     header_str(headers, name)?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::{
+        header::{HeaderMap, HeaderValue},
+        Method,
+    };
+
+    use super::{route_key, RateLimiter};
+
+    #[test]
+    fn message_routes_share_the_documented_message_bucket() {
+        assert_eq!(
+            route_key(&Method::POST, "/channels/abc/messages"),
+            "POST /channels/:id/messages"
+        );
+        assert_eq!(
+            route_key(&Method::POST, "/channels/def/messages"),
+            "POST /channels/:id/messages"
+        );
+    }
+
+    #[tokio::test]
+    async fn acquire_reserves_capacity_before_requests_are_sent() {
+        let limiter = RateLimiter::default();
+
+        for _ in 0..10 {
+            assert!(limiter
+                .acquire(&Method::POST, "/channels/abc/messages")
+                .await
+                .is_zero());
+        }
+
+        let state = limiter.state.lock().await;
+        let bucket = state
+            .buckets
+            .get("POST /channels/:id/messages")
+            .expect("message bucket");
+        assert_eq!(bucket.remaining, 0);
+    }
+
+    #[tokio::test]
+    async fn response_headers_do_not_restore_concurrently_reserved_capacity() {
+        let limiter = RateLimiter::default();
+        let path = "/channels/abc/messages";
+
+        for _ in 0..10 {
+            assert!(limiter.acquire(&Method::POST, path).await.is_zero());
+        }
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-RateLimit-Bucket", HeaderValue::from_static("messages"));
+        headers.insert("X-RateLimit-Limit", HeaderValue::from_static("10"));
+        headers.insert("X-RateLimit-Remaining", HeaderValue::from_static("9"));
+        headers.insert("X-RateLimit-Reset-After", HeaderValue::from_static("10000"));
+        limiter
+            .update_from_headers(&Method::POST, path, &headers)
+            .await;
+
+        let state = limiter.state.lock().await;
+        let bucket = state
+            .buckets
+            .get("POST /channels/:id/messages")
+            .expect("message bucket");
+        assert_eq!(bucket.remaining, 0);
+    }
 }

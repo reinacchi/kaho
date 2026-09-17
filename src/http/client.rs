@@ -7,8 +7,14 @@ use {
     serde::{de::DeserializeOwned, ser::Serialize},
     serde_json::{json, Value},
     serde_urlencoded::to_string as to_query_string,
-    std::{sync::Arc, time::Duration},
-    tokio::time::sleep,
+    std::{
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    },
+    tracing::{debug, warn},
 };
 
 use crate::{
@@ -17,12 +23,52 @@ use crate::{
     models::*,
 };
 
+/// Point-in-time HTTP diagnostics useful for distinguishing Kaho-side waiting from Stoat/network latency.
+#[derive(Clone, Debug, Default)]
+pub struct HttpMetrics {
+    /// Number of HTTP attempts started, including retries after a 429 response.
+    pub requests_started: u64,
+    /// Number of HTTP responses received.
+    pub responses_received: u64,
+    /// Number of successful non-429 responses received.
+    pub successful_responses: u64,
+    /// Number of non-success, non-429 responses received.
+    pub failed_responses: u64,
+    /// Number of request attempts that failed before receiving a response.
+    pub transport_errors: u64,
+    /// Number of 429 responses received from Stoat.
+    pub rate_limit_hits: u64,
+    /// Total time requests have spent waiting for locally tracked rate-limit capacity.
+    pub rate_limit_wait: Duration,
+    /// Time from starting the latest network request until response headers arrived.
+    pub last_response_headers_latency: Duration,
+    /// Total time spent decoding response bodies through Kaho helpers.
+    pub body_decode_time: Duration,
+    /// Number of response body decode/read errors.
+    pub body_decode_errors: u64,
+}
+
+#[derive(Debug, Default)]
+struct HttpMetricsInner {
+    requests_started: AtomicU64,
+    responses_received: AtomicU64,
+    successful_responses: AtomicU64,
+    failed_responses: AtomicU64,
+    transport_errors: AtomicU64,
+    rate_limit_hits: AtomicU64,
+    rate_limit_wait_micros: AtomicU64,
+    last_response_headers_micros: AtomicU64,
+    body_decode_micros: AtomicU64,
+    body_decode_errors: AtomicU64,
+}
+
 /// HTTP client for calling the Stoat REST API.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
     config: HttpConfig,
     rate_limiter: Arc<RateLimiter>,
+    metrics: Arc<HttpMetricsInner>,
 }
 
 impl HttpClient {
@@ -31,12 +77,19 @@ impl HttpClient {
         let mut headers = HeaderMap::new();
         headers.insert("X-Bot-Token", HeaderValue::from_str(&config.token)?);
 
-        let client = Client::builder().default_headers(headers).build()?;
+        let client = Client::builder()
+            .default_headers(headers)
+            .connect_timeout(config.connect_timeout)
+            .timeout(config.request_timeout)
+            .pool_idle_timeout(Some(config.pool_idle_timeout))
+            .tcp_keepalive(Some(config.tcp_keepalive))
+            .build()?;
 
         Ok(Self {
             client,
             config,
             rate_limiter: Arc::new(RateLimiter::default()),
+            metrics: Arc::new(HttpMetricsInner::default()),
         })
     }
 
@@ -63,31 +116,141 @@ impl HttpClient {
         build_request: impl Fn() -> RequestBuilder,
     ) -> KahoResult<Response> {
         loop {
-            self.rate_limiter.wait(&method, path).await;
+            let waited = self.rate_limiter.acquire(&method, path).await;
+            self.metrics
+                .rate_limit_wait_micros
+                .fetch_add(duration_to_micros(waited), Ordering::Relaxed);
 
-            let response = build_request().send().await?;
+            self.metrics
+                .requests_started
+                .fetch_add(1, Ordering::Relaxed);
+            let request_started = Instant::now();
+            let response = match build_request().send().await {
+                Ok(response) => response,
+                Err(error) => {
+                    self.metrics
+                        .transport_errors
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.metrics.last_response_headers_micros.store(
+                        duration_to_micros(request_started.elapsed()),
+                        Ordering::Relaxed,
+                    );
+                    return Err(error.into());
+                }
+            };
+
+            let response_latency = request_started.elapsed();
+            self.metrics
+                .responses_received
+                .fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .last_response_headers_micros
+                .store(duration_to_micros(response_latency), Ordering::Relaxed);
             self.rate_limiter
                 .update_from_headers(&method, path, response.headers())
                 .await;
 
-            if response.status() != StatusCode::TOO_MANY_REQUESTS {
-                if !response.status().is_success() {
-                    return Err(KahoError::FailedRequest(response));
-                }
+            let status = response.status();
+            debug!(
+                method = %method,
+                path,
+                status = status.as_u16(),
+                response_headers_ms = response_latency.as_millis(),
+                local_rate_limit_wait_ms = waited.as_millis(),
+                "Stoat HTTP request completed"
+            );
 
-                return Ok(response);
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                self.metrics.rate_limit_hits.fetch_add(1, Ordering::Relaxed);
+                let retry_after = self
+                    .decode_json::<RateLimitedResponse>(response)
+                    .await
+                    .map(|payload| payload.retry_after)
+                    .unwrap_or(10_000);
+
+                warn!(
+                    method = %method,
+                    path,
+                    retry_after_ms = retry_after,
+                    "Stoat rate limit reached"
+                );
+                self.rate_limiter
+                    .update_retry_after(&method, path, retry_after)
+                    .await;
+                continue;
             }
 
-            let retry_after = response
-                .json::<RateLimitedResponse>()
-                .await
-                .map(|payload| payload.retry_after)
-                .unwrap_or(10_000);
+            if !status.is_success() {
+                self.metrics
+                    .failed_responses
+                    .fetch_add(1, Ordering::Relaxed);
+                return Err(KahoError::FailedRequest(response));
+            }
 
-            self.rate_limiter
-                .update_retry_after(&method, path, retry_after)
-                .await;
-            sleep(Duration::from_millis(retry_after)).await;
+            self.metrics
+                .successful_responses
+                .fetch_add(1, Ordering::Relaxed);
+            return Ok(response);
+        }
+    }
+
+    async fn decode_json<T: DeserializeOwned>(&self, response: Response) -> KahoResult<T> {
+        let started = Instant::now();
+        let result = response.json().await;
+        self.metrics
+            .body_decode_micros
+            .fetch_add(duration_to_micros(started.elapsed()), Ordering::Relaxed);
+
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.metrics
+                    .body_decode_errors
+                    .fetch_add(1, Ordering::Relaxed);
+                Err(error.into())
+            }
+        }
+    }
+
+    async fn decode_bytes(&self, response: Response) -> KahoResult<Vec<u8>> {
+        let started = Instant::now();
+        let result = response.bytes().await;
+        self.metrics
+            .body_decode_micros
+            .fetch_add(duration_to_micros(started.elapsed()), Ordering::Relaxed);
+
+        match result {
+            Ok(bytes) => Ok(bytes.to_vec()),
+            Err(error) => {
+                self.metrics
+                    .body_decode_errors
+                    .fetch_add(1, Ordering::Relaxed);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Return a point-in-time HTTP diagnostics snapshot.
+    pub fn metrics(&self) -> HttpMetrics {
+        HttpMetrics {
+            requests_started: self.metrics.requests_started.load(Ordering::Relaxed),
+            responses_received: self.metrics.responses_received.load(Ordering::Relaxed),
+            successful_responses: self.metrics.successful_responses.load(Ordering::Relaxed),
+            failed_responses: self.metrics.failed_responses.load(Ordering::Relaxed),
+            transport_errors: self.metrics.transport_errors.load(Ordering::Relaxed),
+            rate_limit_hits: self.metrics.rate_limit_hits.load(Ordering::Relaxed),
+            rate_limit_wait: Duration::from_micros(
+                self.metrics.rate_limit_wait_micros.load(Ordering::Relaxed),
+            ),
+            last_response_headers_latency: Duration::from_micros(
+                self.metrics
+                    .last_response_headers_micros
+                    .load(Ordering::Relaxed),
+            ),
+            body_decode_time: Duration::from_micros(
+                self.metrics.body_decode_micros.load(Ordering::Relaxed),
+            ),
+            body_decode_errors: self.metrics.body_decode_errors.load(Ordering::Relaxed),
         }
     }
 
@@ -98,7 +261,7 @@ impl HttpClient {
             .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
             .await?;
 
-        Ok(response.json().await?)
+        self.decode_json(response).await
     }
 
     /// Send a GET request and return the raw response bytes.
@@ -108,7 +271,7 @@ impl HttpClient {
             .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
             .await?;
 
-        Ok(response.bytes().await?.to_vec())
+        self.decode_bytes(response).await
     }
 
     /// Send a POST request with a JSON payload and deserialize the JSON response.
@@ -124,7 +287,7 @@ impl HttpClient {
             })
             .await?;
 
-        Ok(response.json().await?)
+        self.decode_json(response).await
     }
 
     /// Send a POST request with a JSON payload and ignore the response body.
@@ -173,7 +336,7 @@ impl HttpClient {
             })
             .await?;
 
-        Ok(response.json().await?)
+        self.decode_json(response).await
     }
 
     /// Send a PATCH request with a JSON payload and deserialize the JSON response.
@@ -189,7 +352,7 @@ impl HttpClient {
             })
             .await?;
 
-        Ok(response.json().await?)
+        self.decode_json(response).await
     }
 
     /// Upload raw file bytes to the Stoat CDN and return the generated file ID.
@@ -215,7 +378,7 @@ impl HttpClient {
             })
             .await?;
 
-        Ok(response.json::<FileUploadResponse>().await?.id)
+        Ok(self.decode_json::<FileUploadResponse>(response).await?.id)
     }
 
     /// Send a DELETE request.
@@ -258,7 +421,7 @@ impl HttpClient {
             })
             .await?;
 
-        Ok(response.json().await?)
+        self.decode_json(response).await
     }
 
     // Account-related methods
@@ -542,7 +705,8 @@ impl HttpClient {
         let mut path = Endpoint::ChannelMessages(channel_id.to_owned()).path();
 
         if let Some(q) = query.into() {
-            let encoded_query = to_query_string(&q).unwrap();
+            let encoded_query = to_query_string(&q)
+                .map_err(|error| KahoError::Other(format!("Failed to encode query: {error}")))?;
             path.push('?');
             path.push_str(&encoded_query);
         }
@@ -1304,4 +1468,8 @@ impl HttpClient {
         self.post_empty(Endpoint::PushUnsubscribe.path(), payload.into())
             .await
     }
+}
+
+fn duration_to_micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u64::MAX as u128) as u64
 }

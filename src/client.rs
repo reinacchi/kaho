@@ -23,20 +23,16 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct CachedGatewayEventStream {
     inner: GatewayEventStream,
-    cache: Cache,
 }
 
 #[cfg(feature = "cache")]
 impl CachedGatewayEventStream {
-    /// Wait for the next gateway event, updating the cache first when possible.
+    /// Wait for the next gateway event.
+    ///
+    /// The gateway receive pipeline has already synchronized the cache before an event reaches
+    /// this stream, so a slow application consumer cannot make cache state lag behind Stoat.
     pub async fn next(&mut self) -> Option<KahoResult<GatewayEvent>> {
-        match self.inner.next().await {
-            Some(Ok(event)) => {
-                self.cache.update_from_event(&event).await;
-                Some(Ok(event))
-            }
-            other => other,
-        }
+        self.inner.next().await
     }
 }
 
@@ -54,17 +50,24 @@ pub struct KahoClient {
 
 impl KahoClient {
     /// Create a new instance.
-    pub fn new(http: HttpClient, gateway: GatewayClient) -> Self {
+    pub fn new(http: HttpClient, mut gateway: GatewayClient) -> Self {
+        #[cfg(feature = "cache")]
+        let cache = {
+            let cache = Cache::new();
+            gateway.set_cache(cache.clone());
+            cache
+        };
+
         KahoClient {
             http,
             gateway,
             #[cfg(feature = "cache")]
-            cache: Cache::new(),
+            cache,
         }
     }
 
     /// Connect the bot to the gateway.
-    pub async fn connect(&mut self) -> KahoResult<()> {
+    pub async fn connect(&self) -> KahoResult<()> {
         self.gateway.connect().await
     }
 
@@ -73,7 +76,6 @@ impl KahoClient {
     pub fn events(&self) -> CachedGatewayEventStream {
         CachedGatewayEventStream {
             inner: self.gateway.events(),
-            cache: self.cache.clone(),
         }
     }
 }
@@ -111,12 +113,9 @@ impl KahoClientBuilder {
         let http_config = HttpConfig::new(&token)?;
         let gateway_config = GatewayConfig::new(&token)?;
 
-        Ok(KahoClient {
-            http: HttpClient::new(http_config)?,
-            gateway: GatewayClient::new(gateway_config),
-            #[cfg(feature = "cache")]
-            cache: Cache::new(),
-        })
+        let http = HttpClient::new(http_config)?;
+        let gateway = GatewayClient::new(gateway_config);
+        Ok(KahoClient::new(http, gateway))
     }
 }
 

@@ -1,38 +1,144 @@
-use async_channel::{unbounded, Receiver, Sender};
-use futures::{pin_mut, SinkExt, StreamExt};
+use async_channel::{bounded, Receiver, Sender, TryRecvError, TrySendError};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 #[cfg(feature = "msgpack")]
 use rmp_serde::{from_slice as from_msgpack_slice, to_vec_named as to_msgpack_vec};
 use serde_json::{from_str as from_json_str, to_string as to_json_string};
 use std::{
     cmp::min,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    future::pending,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::{select, spawn, time::sleep};
+use tokio::{
+    select, spawn,
+    sync::watch,
+    time::{interval, sleep, timeout, MissedTickBehavior},
+};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Error as WsError, Message},
 };
+use tracing::{debug, warn};
 
+#[cfg(feature = "cache")]
+use crate::cache::Cache;
 use crate::{
-    error::{KahoError, KahoResult},
+    error::{AuthError, KahoError, KahoResult},
     gateway::GatewayConfig,
     models::{ClientEvent, GatewayEvent},
 };
 
+/// Current lifecycle state of the gateway connection loop.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum GatewayConnectionState {
+    /// No connection loop is currently running.
+    Disconnected = 0,
+    /// Kaho is establishing or authenticating the first connection.
+    Connecting = 1,
+    /// The gateway has authenticated the current connection.
+    Connected = 2,
+    /// Kaho is waiting before or attempting a reconnect.
+    Reconnecting = 3,
+    /// The connection loop stopped after a fatal error or configured retry limit.
+    Stopped = 4,
+}
+
+impl GatewayConnectionState {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Connecting,
+            2 => Self::Connected,
+            3 => Self::Reconnecting,
+            4 => Self::Stopped,
+            _ => Self::Disconnected,
+        }
+    }
+}
+
+/// Point-in-time gateway diagnostics useful for identifying latency and reconnect issues.
+#[derive(Clone, Debug)]
+pub struct GatewayMetrics {
+    /// Current gateway lifecycle state.
+    pub connection_state: GatewayConnectionState,
+    /// Number of reconnects attempted since this gateway client was created.
+    pub reconnects: u64,
+    /// Number of decoded gateway events received, including heartbeat events.
+    pub events_received: u64,
+    /// Number of application events discarded because the bounded event queue overflowed.
+    pub dropped_events: u64,
+    /// Number of application events currently waiting to be consumed.
+    pub event_queue_depth: usize,
+    /// Maximum number of application events buffered by the gateway client.
+    pub event_queue_capacity: usize,
+    /// Number of client events currently waiting to be written to the gateway.
+    pub outbound_queue_depth: usize,
+    /// Maximum number of client events buffered while the gateway writer is busy.
+    pub outbound_queue_capacity: usize,
+    /// Delay experienced by the most recently consumed application event.
+    pub last_event_queue_delay: Duration,
+    /// Time elapsed since the most recent decoded gateway event.
+    pub time_since_last_event: Option<Duration>,
+    /// Most recently measured Stoat Ping/Pong round-trip latency.
+    pub heartbeat_latency: Duration,
+}
+
+#[derive(Debug)]
+struct GatewayMetricsInner {
+    state: AtomicU8,
+    reconnects: AtomicU64,
+    events_received: AtomicU64,
+    dropped_events: AtomicU64,
+    last_queue_delay_micros: AtomicU64,
+    last_event_at: Mutex<Option<Instant>>,
+}
+
+impl Default for GatewayMetricsInner {
+    fn default() -> Self {
+        Self {
+            state: AtomicU8::new(GatewayConnectionState::Disconnected as u8),
+            reconnects: AtomicU64::new(0),
+            events_received: AtomicU64::new(0),
+            dropped_events: AtomicU64::new(0),
+            last_queue_delay_micros: AtomicU64::new(0),
+            last_event_at: Mutex::new(None),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct QueuedGatewayEvent {
+    enqueued_at: Instant,
+    result: KahoResult<GatewayEvent>,
+}
+
 /// Represents a gateway event stream value used by the Stoat API models and endpoints.
 #[derive(Debug, Clone)]
 pub struct GatewayEventStream {
-    receiver: Receiver<KahoResult<GatewayEvent>>,
+    receiver: Receiver<QueuedGatewayEvent>,
+    metrics: Arc<GatewayMetricsInner>,
+    observed_dropped_events: u64,
 }
 
 impl GatewayEventStream {
     /// Wait for the next gateway event.
-    ///
-    /// This method intentionally avoids the `StreamExt::next` `Unpin` bound,
-    /// so callers do not need to use `std::pin`, `pin!`, or `Box::pin`.
     pub async fn next(&mut self) -> Option<KahoResult<GatewayEvent>> {
-        self.receiver.recv().await.ok()
+        let dropped_events = self.metrics.dropped_events.load(Ordering::Relaxed);
+        if dropped_events > self.observed_dropped_events {
+            let dropped = dropped_events - self.observed_dropped_events;
+            self.observed_dropped_events = dropped_events;
+            return Some(Err(KahoError::GatewayEventQueueOverflow { dropped }));
+        }
+
+        let queued = self.receiver.recv().await.ok()?;
+        self.metrics.last_queue_delay_micros.store(
+            duration_to_micros(queued.enqueued_at.elapsed()),
+            Ordering::Relaxed,
+        );
+        Some(queued.result)
     }
 }
 
@@ -45,17 +151,25 @@ pub struct GatewayClient {
     pub last_heartbeat: Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
     client_sender: Sender<ClientEvent>,
     client_receiver: Receiver<ClientEvent>,
-    server_sender: Sender<Result<GatewayEvent, KahoError>>,
-    server_receiver: Receiver<Result<GatewayEvent, KahoError>>,
-    /// Whether the client believes it has started a gateway connection loop.
-    pub is_connected: bool,
+    server_sender: Sender<QueuedGatewayEvent>,
+    server_receiver: Receiver<QueuedGatewayEvent>,
+    loop_started: Arc<AtomicBool>,
+    shutdown_requested: Arc<AtomicBool>,
+    shutdown_sender: watch::Sender<bool>,
+    shutdown_receiver: watch::Receiver<bool>,
+    heartbeat_nonce: Arc<AtomicUsize>,
+    awaiting_pong: Arc<AtomicBool>,
+    metrics: Arc<GatewayMetricsInner>,
+    #[cfg(feature = "cache")]
+    cache: Option<Cache>,
 }
 
 impl GatewayClient {
     /// Create a gateway client from an existing configuration.
     pub fn new(config: GatewayConfig) -> Self {
-        let (client_sender, client_receiver) = unbounded();
-        let (server_sender, server_receiver) = unbounded();
+        let (client_sender, client_receiver) = bounded(config.outbound_queue_capacity.max(1));
+        let (server_sender, server_receiver) = bounded(config.event_queue_capacity.max(1));
+        let (shutdown_sender, shutdown_receiver) = watch::channel(false);
 
         Self {
             config,
@@ -64,185 +178,494 @@ impl GatewayClient {
             client_sender,
             server_receiver,
             server_sender,
-            is_connected: false,
+            loop_started: Arc::new(AtomicBool::new(false)),
+            shutdown_requested: Arc::new(AtomicBool::new(false)),
+            shutdown_sender,
+            shutdown_receiver,
+            heartbeat_nonce: Arc::new(AtomicUsize::new(0)),
+            awaiting_pong: Arc::new(AtomicBool::new(false)),
+            metrics: Arc::new(GatewayMetricsInner::default()),
+            #[cfg(feature = "cache")]
+            cache: None,
         }
+    }
+
+    /// Attach the shared Kaho cache so gateway events update it as soon as they arrive.
+    #[cfg(feature = "cache")]
+    pub(crate) fn set_cache(&mut self, cache: Cache) {
+        self.cache = Some(cache);
     }
 
     /// Start the gateway connection and reconnect loop.
-    pub async fn connect(&mut self) -> KahoResult<()> {
-        if self.is_connected {
+    ///
+    /// Calling this method more than once while the loop is active is a no-op.
+    pub async fn connect(&self) -> KahoResult<()> {
+        if self.loop_started.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
 
-        let mut client = self.clone();
+        self.shutdown_requested.store(false, Ordering::Release);
+        let _ = self.shutdown_sender.send(false);
+        self.set_connection_state(GatewayConnectionState::Connecting);
+
+        let client = self.clone();
         spawn(async move {
-            loop {
-                match client.try_connect().await {
-                    Ok(_) => {
-                        client.config.reconnect_attempts = 0;
-                    }
-                    Err(e) => {
-                        client.is_connected = false;
-                        client.config.reconnect_attempts += 1;
-
-                        if client.config.reconnect_attempts > client.config.max_reconnect_attempts {
-                            let _ = client
-                                .server_sender
-                                .send(Err(KahoError::Other(format!(
-                                    "Connection failed after {} reconnect attempts: {}",
-                                    client.config.max_reconnect_attempts, e
-                                ))))
-                                .await;
-                            break;
-                        }
-
-                        let delay = min(
-                            client.config.reconnect_delay * client.config.reconnect_attempts as u32,
-                            Duration::from_secs(60),
-                        );
-
-                        let _ = client
-                            .server_sender
-                            .send(Err(KahoError::Other(format!(
-                                "Connection failed: {}; retrying in {}s",
-                                e,
-                                delay.as_secs()
-                            ))))
-                            .await;
-
-                        sleep(delay).await;
-                    }
-                }
-            }
+            client.run_connection_loop().await;
         });
 
-        self.is_connected = true;
         Ok(())
     }
 
-    async fn try_connect(&mut self) -> KahoResult<()> {
-        let (stream, _) = match connect_async(&self.config.ws_url).await {
-            Ok((stream, response)) => (stream, response),
-            Err(e) => {
-                return Err(handle_websocket_error(e));
+    /// Request a clean stop of the active connection and reconnect loop.
+    ///
+    /// A later call to [`GatewayClient::connect`] can start it again.
+    pub fn disconnect(&self) {
+        self.shutdown_requested.store(true, Ordering::Release);
+        let _ = self.shutdown_sender.send(true);
+    }
+
+    async fn run_connection_loop(self) {
+        let mut consecutive_failures = 0usize;
+        let mut first_attempt = true;
+
+        loop {
+            if self.shutdown_requested.load(Ordering::Acquire) {
+                self.set_connection_state(GatewayConnectionState::Disconnected);
+                break;
+            }
+
+            self.set_connection_state(if first_attempt {
+                GatewayConnectionState::Connecting
+            } else {
+                GatewayConnectionState::Reconnecting
+            });
+
+            let session = self.run_session().await;
+            self.awaiting_pong.store(false, Ordering::Release);
+
+            if self.shutdown_requested.load(Ordering::Acquire) {
+                self.set_connection_state(GatewayConnectionState::Disconnected);
+                break;
+            }
+
+            if session.authenticated {
+                consecutive_failures = 0;
+            }
+
+            if is_fatal_gateway_error(&session.error) {
+                self.enqueue_result(Err(session.error));
+                self.set_connection_state(GatewayConnectionState::Stopped);
+                break;
+            }
+
+            consecutive_failures = consecutive_failures.saturating_add(1);
+            self.metrics.reconnects.fetch_add(1, Ordering::Relaxed);
+
+            if self.config.max_reconnect_attempts != 0
+                && consecutive_failures > self.config.max_reconnect_attempts
+            {
+                self.enqueue_result(Err(KahoError::Other(format!(
+                    "Gateway stopped after {} consecutive reconnect attempts: {}",
+                    self.config.max_reconnect_attempts, session.error
+                ))));
+                self.set_connection_state(GatewayConnectionState::Stopped);
+                break;
+            }
+
+            let delay = reconnect_delay(&self.config, consecutive_failures);
+            warn!(
+                error = %session.error,
+                reconnect_in_ms = delay.as_millis(),
+                attempt = consecutive_failures,
+                "gateway disconnected. reconnecting"
+            );
+            self.enqueue_result(Err(session.error));
+            self.set_connection_state(GatewayConnectionState::Reconnecting);
+            first_attempt = false;
+
+            select! {
+                _ = sleep(delay) => {}
+                _ = wait_for_shutdown(self.shutdown_receiver.clone()) => {
+                    self.set_connection_state(GatewayConnectionState::Disconnected);
+                    break;
+                }
+            }
+        }
+
+        self.loop_started.store(false, Ordering::Release);
+    }
+
+    async fn run_session(&self) -> SessionEnd {
+        let connect = match timeout(
+            self.config.connect_timeout,
+            connect_async(&self.config.ws_url),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                return SessionEnd {
+                    error: KahoError::GatewayConnectTimeout,
+                    authenticated: false,
+                };
             }
         };
 
-        self.is_connected = true;
-        self.config.reconnect_attempts = 0;
-
-        self.send(ClientEvent::Authenticate {
-            token: self.config.token.clone(),
-        })
-        .await
-        .map_err(|_e| KahoError::Other("Failed to send authentication event".into()))?;
-
-        let client_receiver = self.client_receiver.clone();
-        let server_sender = self.server_sender.clone();
-        let heartbeat_sender = self.client_sender.clone();
-        let last_heartbeat = self.last_heartbeat.clone();
-
-        let heartbeat_task = spawn({
-            let interval = self.config.heartbeat_interval;
-            let last_heartbeat = last_heartbeat.clone();
-
-            async move {
-                let _ = Self::heartbeat(heartbeat_sender, interval, last_heartbeat).await;
+        let (mut stream, _response) = match connect {
+            Ok(value) => value,
+            Err(error) => {
+                return SessionEnd {
+                    error: handle_websocket_error(error),
+                    authenticated: false,
+                };
             }
-        });
+        };
 
-        let (mut write_stream, mut read_stream) = stream.split();
-
-        let write_task = spawn({
-            let server_sender = server_sender.clone();
-            async move {
-                pin_mut!(client_receiver);
-
-                while let Some(event) = client_receiver.next().await {
-                    let msg = match serialize_client_event(&event) {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            let _ = server_sender.send(Err(e)).await;
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = write_stream.send(msg).await {
-                        let _ = server_sender
-                            .send(Err(handle_websocket_error(e).into()))
-                            .await;
-                        break;
-                    }
-                }
-            }
-        });
-
-        let read_task = spawn({
-            let server_sender = server_sender.clone();
-            let last_heartbeat = last_heartbeat.clone();
-
-            async move {
-                while let Some(msg) = read_stream.next().await {
-                    let event = match msg {
-                        Ok(msg) => match msg {
-                            Message::Text(text) => deserialize_gateway_event_text(&text),
-                            Message::Binary(_bytes) => {
-                                #[cfg(feature = "msgpack")]
-                                {
-                                    deserialize_gateway_event_binary(&_bytes)
-                                }
-                                #[cfg(not(feature = "msgpack"))]
-                                {
-                                    continue;
-                                }
-                            }
-                            Message::Close(_) => {
-                                break;
-                            }
-                            _ => continue,
-                        },
-                        Err(e) => Err(handle_websocket_error(e).into()),
-                    };
-
-                    if !send_gateway_event(&server_sender, event, &last_heartbeat).await {
-                        break;
-                    }
-                }
-
-                let _ = server_sender
-                    .send(Err(KahoError::Other("WebSocket disconnected".to_string())))
-                    .await;
-            }
-        });
-
-        select! {
-            _ = heartbeat_task => Err(KahoError::Other("Heartbeat task terminated".into())),
-            _ = write_task => Err(KahoError::Other("Write task terminated".into())),
-            _ = read_task => Err(KahoError::Other("Read task terminated".into())),
+        if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
+            *heartbeat = (None, None);
         }
+        self.awaiting_pong.store(false, Ordering::Release);
+
+        let authentication = ClientEvent::Authenticate {
+            token: self.config.token.clone(),
+        };
+        let authentication = match serialize_client_event(&authentication) {
+            Ok(message) => message,
+            Err(error) => {
+                return SessionEnd {
+                    error,
+                    authenticated: false,
+                };
+            }
+        };
+
+        match timeout(self.config.write_timeout, stream.send(authentication)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                return SessionEnd {
+                    error: handle_websocket_error(error),
+                    authenticated: false,
+                };
+            }
+            Err(_) => {
+                return SessionEnd {
+                    error: KahoError::GatewayWriteTimeout,
+                    authenticated: false,
+                };
+            }
+        }
+
+        let authenticated = Arc::new(AtomicBool::new(false));
+        let (write_stream, read_stream) = stream.split();
+
+        let read_loop = self.read_loop(read_stream, authenticated.clone());
+        let write_loop = self.write_loop(write_stream);
+        let auth_watchdog =
+            authentication_watchdog(authenticated.clone(), self.config.authentication_timeout);
+        let heartbeat_watchdog = self.heartbeat_watchdog();
+
+        let result = select! {
+            result = read_loop => result,
+            result = write_loop => result,
+            result = auth_watchdog => result,
+            result = heartbeat_watchdog => result,
+            _ = wait_for_shutdown(self.shutdown_receiver.clone()) => {
+                Err(KahoError::Other("Gateway shutdown requested".into()))
+            }
+        };
+
+        SessionEnd {
+            error: result.err().unwrap_or_else(|| {
+                KahoError::Other("Gateway session terminated unexpectedly".into())
+            }),
+            authenticated: authenticated.load(Ordering::Acquire),
+        }
+    }
+
+    async fn read_loop<S>(&self, mut read_stream: S, authenticated: Arc<AtomicBool>) -> KahoResult
+    where
+        S: Stream<Item = Result<Message, WsError>> + Unpin,
+    {
+        while let Some(message) = read_stream.next().await {
+            let event = match message {
+                Ok(Message::Text(text)) => deserialize_gateway_event_text(&text),
+                Ok(Message::Binary(bytes)) => {
+                    #[cfg(feature = "msgpack")]
+                    {
+                        deserialize_gateway_event_binary(&bytes)
+                    }
+                    #[cfg(not(feature = "msgpack"))]
+                    {
+                        let _ = bytes;
+                        continue;
+                    }
+                }
+                Ok(Message::Close(frame)) => {
+                    let reason = frame
+                        .map(|frame| frame.reason.to_string())
+                        .filter(|reason| !reason.is_empty())
+                        .unwrap_or_else(|| "remote endpoint closed the WebSocket".into());
+                    return Err(KahoError::Other(reason));
+                }
+                Ok(_) => continue,
+                Err(error) => return Err(handle_websocket_error(error)),
+            };
+
+            match event {
+                Ok(event) => self.process_gateway_event(event, &authenticated).await?,
+                Err(error) => {
+                    debug!(%error, "discarding malformed gateway event");
+                    self.enqueue_result(Err(error));
+                }
+            }
+        }
+
+        Err(KahoError::Other("WebSocket disconnected".into()))
+    }
+
+    async fn write_loop<S>(&self, mut write_stream: S) -> KahoResult
+    where
+        S: Sink<Message, Error = WsError> + Unpin,
+    {
+        let heartbeat_interval = self
+            .config
+            .heartbeat_interval
+            .max(Duration::from_millis(100));
+        let mut heartbeat = interval(heartbeat_interval);
+        heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // Tokio intervals tick immediately once. Consume that initial tick so the first gateway
+        // Ping is sent after the configured interval rather than immediately after Authenticate.
+        heartbeat.tick().await;
+
+        loop {
+            select! {
+                event = self.client_receiver.recv() => {
+                    let event = event.map_err(|error| {
+                        KahoError::Other(format!("Gateway outbound queue closed: {error}"))
+                    })?;
+                    let message = serialize_client_event(&event)?;
+                    send_websocket_message(
+                        &mut write_stream,
+                        message,
+                        self.config.write_timeout,
+                    ).await?;
+                }
+                _ = heartbeat.tick() => {
+                    self.send_heartbeat(&mut write_stream).await?;
+                }
+            }
+        }
+    }
+
+    async fn heartbeat_watchdog(&self) -> KahoResult {
+        let check_interval = min(
+            Duration::from_secs(1),
+            self.config
+                .heartbeat_timeout
+                .max(Duration::from_millis(100)),
+        );
+
+        loop {
+            sleep(check_interval).await;
+            if !self.awaiting_pong.load(Ordering::Acquire) {
+                continue;
+            }
+
+            let timed_out = self
+                .last_heartbeat
+                .lock()
+                .ok()
+                .and_then(|heartbeat| heartbeat.0)
+                .map(|ping| ping.elapsed() >= self.config.heartbeat_timeout)
+                .unwrap_or(false);
+            if timed_out {
+                return Err(KahoError::GatewayHeartbeatTimeout);
+            }
+        }
+    }
+
+    async fn send_heartbeat<S>(&self, write_stream: &mut S) -> KahoResult
+    where
+        S: Sink<Message, Error = WsError> + Unpin,
+    {
+        if self.awaiting_pong.load(Ordering::Acquire) {
+            let ping_age = self
+                .last_heartbeat
+                .lock()
+                .ok()
+                .and_then(|heartbeat| heartbeat.0)
+                .map(|ping| ping.elapsed());
+
+            if ping_age
+                .map(|age| age >= self.config.heartbeat_timeout)
+                .unwrap_or(false)
+            {
+                return Err(KahoError::GatewayHeartbeatTimeout);
+            }
+
+            // Do not overwrite the timestamp for an outstanding ping. This ensures a missing
+            // Pong eventually trips the watchdog instead of being hidden by newer pings.
+            return Ok(());
+        }
+
+        let data = self
+            .heartbeat_nonce
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        let message = serialize_client_event(&ClientEvent::Ping { data })?;
+        let sent_at = Instant::now();
+
+        if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
+            heartbeat.0 = Some(sent_at);
+        }
+        self.awaiting_pong.store(true, Ordering::Release);
+
+        if let Err(error) =
+            send_websocket_message(write_stream, message, self.config.write_timeout).await
+        {
+            self.awaiting_pong.store(false, Ordering::Release);
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    async fn process_gateway_event(
+        &self,
+        event: GatewayEvent,
+        authenticated: &AtomicBool,
+    ) -> KahoResult {
+        let mut stack = vec![event];
+
+        while let Some(event) = stack.pop() {
+            self.metrics.events_received.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut last_event) = self.metrics.last_event_at.lock() {
+                *last_event = Some(Instant::now());
+            }
+
+            match event {
+                GatewayEvent::Pong { data } => {
+                    self.record_pong(data);
+                }
+                GatewayEvent::Bulk { v } => {
+                    stack.extend(v.into_iter().rev());
+                }
+                GatewayEvent::Error { error } => return Err(KahoError::Auth(error)),
+                GatewayEvent::LoggedOut => return Err(KahoError::GatewayLoggedOut),
+                event => {
+                    if matches!(&event, GatewayEvent::Authenticated | GatewayEvent::Ready(_)) {
+                        authenticated.store(true, Ordering::Release);
+                        self.set_connection_state(GatewayConnectionState::Connected);
+                    }
+
+                    #[cfg(feature = "cache")]
+                    if let Some(cache) = &self.cache {
+                        cache.update_from_event(&event).await;
+                    }
+
+                    self.enqueue_result(Ok(event));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn record_pong(&self, data: usize) {
+        if !self.awaiting_pong.load(Ordering::Acquire) {
+            return;
+        }
+
+        if data != self.heartbeat_nonce.load(Ordering::Relaxed) {
+            return;
+        }
+
+        if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
+            heartbeat.1 = Some(Instant::now());
+        }
+        self.awaiting_pong.store(false, Ordering::Release);
+    }
+
+    fn enqueue_result(&self, result: KahoResult<GatewayEvent>) {
+        let mut queued = QueuedGatewayEvent {
+            enqueued_at: Instant::now(),
+            result,
+        };
+
+        loop {
+            match self.server_sender.try_send(queued) {
+                Ok(()) => return,
+                Err(TrySendError::Closed(_)) => return,
+                Err(TrySendError::Full(item)) => {
+                    queued = item;
+                    match self.server_receiver.try_recv() {
+                        Ok(_) => {
+                            let dropped = self
+                                .metrics
+                                .dropped_events
+                                .fetch_add(1, Ordering::Relaxed)
+                                .saturating_add(1);
+                            if dropped == 1 || dropped.is_power_of_two() {
+                                warn!(
+                                    dropped_events = dropped,
+                                    queue_capacity = self.server_sender.capacity().unwrap_or(0),
+                                    "gateway application event queue overflowed; dropped oldest event"
+                                );
+                            }
+                        }
+                        Err(TryRecvError::Empty) => continue,
+                        Err(TryRecvError::Closed) => return,
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_connection_state(&self, state: GatewayConnectionState) {
+        self.metrics.state.store(state as u8, Ordering::Release);
     }
 
     /// Queue a client event to be sent over the gateway connection.
     pub async fn send(&self, event: ClientEvent) -> KahoResult<()> {
-        self.client_sender
-            .send(event)
-            .await
-            .map_err(|e| KahoError::Other(format!("Failed to send event to client: {}", e)))
+        match timeout(
+            self.config.outbound_queue_timeout,
+            self.client_sender.send(event),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(KahoError::Other(format!(
+                "Failed to queue gateway event: {error}"
+            ))),
+            Err(_) => Err(KahoError::GatewaySendQueueTimeout),
+        }
     }
+
     /// Returns a receiver-like gateway event stream.
     ///
-    /// The returned type has an inherent async [`GatewayEventStream::next`]
-    /// method, so consumers can write `events.next().await` without importing
-    /// or using any pinning APIs.
+    /// The returned type has an inherent async [`GatewayEventStream::next`] method, so consumers
+    /// can write `events.next().await` without importing or using any pinning APIs.
     pub fn events(&self) -> GatewayEventStream {
         GatewayEventStream {
             receiver: self.server_receiver.clone(),
+            metrics: self.metrics.clone(),
+            observed_dropped_events: self.metrics.dropped_events.load(Ordering::Relaxed),
         }
+    }
+
+    /// Return the current gateway connection state.
+    pub fn connection_state(&self) -> GatewayConnectionState {
+        GatewayConnectionState::from_u8(self.metrics.state.load(Ordering::Acquire))
+    }
+
+    /// Return whether the current gateway session has authenticated successfully.
+    pub fn is_connected(&self) -> bool {
+        self.connection_state() == GatewayConnectionState::Connected
     }
 
     /// Return the current heartbeat latency estimate.
     ///
-    /// Returns `Duration::ZERO` until at least one ping/pong cycle has completed.
+    /// Returns `Duration::ZERO` until at least one Ping/Pong cycle has completed.
     pub fn latency(&self) -> Duration {
         let Ok((last_ping, last_pong)) = self.last_heartbeat.lock().map(|state| *state) else {
             return Duration::ZERO;
@@ -254,70 +677,126 @@ impl GatewayClient {
         }
     }
 
-    async fn heartbeat(
-        sender: Sender<ClientEvent>,
-        interval: Duration,
-        last_heartbeat: Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
-    ) -> Result<(), KahoError> {
-        loop {
-            if let Ok(mut heartbeat) = last_heartbeat.lock() {
-                heartbeat.0 = Some(Instant::now());
-            }
+    /// Return a point-in-time gateway diagnostics snapshot.
+    pub fn metrics(&self) -> GatewayMetrics {
+        let time_since_last_event = self
+            .metrics
+            .last_event_at
+            .lock()
+            .ok()
+            .and_then(|last_event| last_event.map(|instant| instant.elapsed()));
 
-            if let Err(_e) = sender.send(ClientEvent::Ping { data: 0 }).await {
-                break;
-            }
-
-            sleep(interval).await;
+        GatewayMetrics {
+            connection_state: self.connection_state(),
+            reconnects: self.metrics.reconnects.load(Ordering::Relaxed),
+            events_received: self.metrics.events_received.load(Ordering::Relaxed),
+            dropped_events: self.metrics.dropped_events.load(Ordering::Relaxed),
+            event_queue_depth: self.server_sender.len(),
+            event_queue_capacity: self.server_sender.capacity().unwrap_or(0),
+            outbound_queue_depth: self.client_sender.len(),
+            outbound_queue_capacity: self.client_sender.capacity().unwrap_or(0),
+            last_event_queue_delay: Duration::from_micros(
+                self.metrics.last_queue_delay_micros.load(Ordering::Relaxed),
+            ),
+            time_since_last_event,
+            heartbeat_latency: self.latency(),
         }
-
-        Ok(())
     }
 }
 
-async fn send_gateway_event(
-    sender: &Sender<Result<GatewayEvent, KahoError>>,
-    event: KahoResult<GatewayEvent>,
-    last_heartbeat: &Arc<Mutex<(Option<Instant>, Option<Instant>)>>,
-) -> bool {
-    let event = match event {
-        Ok(event) => event,
-        Err(error) => return sender.send(Err(error)).await.is_ok(),
-    };
-
-    let mut stack = vec![event];
-
-    while let Some(event) = stack.pop() {
-        match event {
-            GatewayEvent::Pong { .. } => {
-                if let Ok(mut heartbeat) = last_heartbeat.lock() {
-                    heartbeat.1 = Some(Instant::now());
-                }
-            }
-            GatewayEvent::Bulk { v } => {
-                stack.extend(v.into_iter().rev());
-            }
-            event => {
-                if sender.send(Ok(event)).await.is_err() {
-                    return false;
-                }
-            }
-        }
-    }
-
-    true
+#[derive(Debug)]
+struct SessionEnd {
+    error: KahoError,
+    authenticated: bool,
 }
 
-fn handle_websocket_error(err: WsError) -> KahoError {
-    match &err {
+async fn wait_for_shutdown(mut receiver: watch::Receiver<bool>) {
+    if *receiver.borrow() {
+        return;
+    }
+
+    loop {
+        if receiver.changed().await.is_err() || *receiver.borrow() {
+            return;
+        }
+    }
+}
+
+async fn authentication_watchdog(
+    authenticated: Arc<AtomicBool>,
+    authentication_timeout: Duration,
+) -> KahoResult {
+    sleep(authentication_timeout.max(Duration::from_millis(100))).await;
+
+    if authenticated.load(Ordering::Acquire) {
+        pending::<KahoResult>().await
+    } else {
+        Err(KahoError::GatewayAuthenticationTimeout)
+    }
+}
+
+async fn send_websocket_message<S>(
+    write_stream: &mut S,
+    message: Message,
+    write_timeout: Duration,
+) -> KahoResult
+where
+    S: Sink<Message, Error = WsError> + Unpin,
+{
+    match timeout(
+        write_timeout.max(Duration::from_millis(100)),
+        write_stream.send(message),
+    )
+    .await
+    {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(handle_websocket_error(error)),
+        Err(_) => Err(KahoError::GatewayWriteTimeout),
+    }
+}
+
+fn reconnect_delay(config: &GatewayConfig, attempt: usize) -> Duration {
+    let exponent = attempt.saturating_sub(1).min(10) as u32;
+    let multiplier = 1u32 << exponent;
+    let base = config
+        .reconnect_delay
+        .checked_mul(multiplier)
+        .unwrap_or(config.max_reconnect_delay);
+    let capped = min(base, config.max_reconnect_delay);
+
+    let maximum_jitter_ms = (capped.as_millis() / 5).min(u64::MAX as u128) as u64;
+    if maximum_jitter_ms == 0 || capped >= config.max_reconnect_delay {
+        return capped;
+    }
+
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_nanos() as u64)
+        .unwrap_or(0);
+    let jitter = Duration::from_millis(seed % (maximum_jitter_ms + 1));
+    min(capped + jitter, config.max_reconnect_delay)
+}
+
+fn is_fatal_gateway_error(error: &KahoError) -> bool {
+    matches!(
+        error,
+        KahoError::GatewayLoggedOut
+            | KahoError::Auth(AuthError::InvalidSession)
+            | KahoError::Auth(AuthError::OnboardingNotFinished)
+            | KahoError::Auth(AuthError::AlreadyAuthenticated)
+    )
+}
+
+fn handle_websocket_error(error: WsError) -> KahoError {
+    match &error {
         WsError::AlreadyClosed => KahoError::Other("WebSocket already closed".to_string()),
-        WsError::Io(io_err) if io_err.raw_os_error() == Some(104) => {
+        WsError::Io(io_error) if io_error.raw_os_error() == Some(104) => {
             KahoError::Other("Connection reset by peer".to_string())
         }
-        WsError::Io(io_err) if io_err.raw_os_error() == Some(10054) => {
+        WsError::Io(io_error) if io_error.raw_os_error() == Some(10054) => {
             KahoError::Other("Connection forcibly closed by remote host".to_string())
         }
-        _ => KahoError::WebSocket(err),
+        _ => KahoError::WebSocket(error),
     }
 }
 
@@ -325,32 +804,121 @@ fn handle_websocket_error(err: WsError) -> KahoError {
 fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
     to_json_string(event)
         .map(|json| Message::Text(json.into()))
-        .map_err(|e| KahoError::Other(format!("Serialization error: {}", e)))
+        .map_err(|error| KahoError::Other(format!("Serialization error: {error}")))
 }
 
 #[cfg(feature = "msgpack")]
 fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
     to_msgpack_vec(event)
         .map(|bytes| Message::Binary(bytes.into()))
-        .map_err(|e| KahoError::Other(format!("MessagePack serialization error: {}", e)))
+        .map_err(|error| KahoError::Other(format!("MessagePack serialization error: {error}")))
 }
 
 fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
-    match from_json_str::<GatewayEvent>(text) {
-        Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
-        Ok(event) => Ok(event),
-        Err(e) => Err(KahoError::Other(format!("Deserialization error: {}", e))),
-    }
+    from_json_str::<GatewayEvent>(text)
+        .map_err(|error| KahoError::Other(format!("Deserialization error: {error}")))
 }
 
 #[cfg(feature = "msgpack")]
 fn deserialize_gateway_event_binary(bytes: &[u8]) -> KahoResult<GatewayEvent> {
-    match from_msgpack_slice::<GatewayEvent>(bytes) {
-        Ok(GatewayEvent::Pong { data }) => Ok(GatewayEvent::Pong { data }),
-        Ok(event) => Ok(event),
-        Err(e) => Err(KahoError::Other(format!(
-            "MessagePack deserialization error: {}",
-            e
-        ))),
+    from_msgpack_slice::<GatewayEvent>(bytes)
+        .map_err(|error| KahoError::Other(format!("MessagePack deserialization error: {error}")))
+}
+
+fn duration_to_micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u64::MAX as u128) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{reconnect_delay, GatewayConnectionState};
+    use crate::{error::KahoError, gateway::GatewayConfig, models::GatewayEvent};
+
+    #[test]
+    fn reconnect_backoff_is_capped() {
+        let mut config = GatewayConfig::new("token").expect("valid config");
+        config.reconnect_delay = Duration::from_secs(2);
+        config.max_reconnect_delay = Duration::from_secs(8);
+
+        assert!(reconnect_delay(&config, 1) >= Duration::from_secs(2));
+        assert!(reconnect_delay(&config, 10) <= Duration::from_secs(8));
+    }
+
+    #[test]
+    fn connection_state_round_trips() {
+        for state in [
+            GatewayConnectionState::Disconnected,
+            GatewayConnectionState::Connecting,
+            GatewayConnectionState::Connected,
+            GatewayConnectionState::Reconnecting,
+            GatewayConnectionState::Stopped,
+        ] {
+            assert_eq!(GatewayConnectionState::from_u8(state as u8), state);
+        }
+    }
+
+    #[test]
+    fn disconnect_updates_shared_shutdown_signal() {
+        let config = GatewayConfig::new("token").expect("valid config");
+        let gateway = super::GatewayClient::new(config);
+
+        assert!(!*gateway.shutdown_receiver.borrow());
+        gateway.disconnect();
+        assert!(*gateway.shutdown_receiver.borrow());
+    }
+
+    #[tokio::test]
+    async fn bounded_event_queue_reports_overflow() {
+        let mut config = GatewayConfig::new("token").expect("valid config");
+        config.event_queue_capacity = 1;
+        let gateway = super::GatewayClient::new(config);
+        let mut events = gateway.events();
+
+        gateway.enqueue_result(Ok(GatewayEvent::Authenticated));
+        gateway.enqueue_result(Ok(GatewayEvent::Authenticated));
+
+        let overflow = events.next().await.expect("overflow notification");
+        assert!(matches!(
+            overflow,
+            Err(KahoError::GatewayEventQueueOverflow { dropped: 1 })
+        ));
+        assert!(matches!(
+            events.next().await,
+            Some(Ok(GatewayEvent::Authenticated))
+        ));
+    }
+
+    #[cfg(feature = "cache")]
+    #[tokio::test]
+    async fn gateway_updates_cache_before_application_polling() {
+        use std::sync::{atomic::AtomicBool, Arc};
+
+        use crate::{cache::Cache, models::Message};
+
+        let config = GatewayConfig::new("token").expect("valid config");
+        let mut gateway = super::GatewayClient::new(config);
+        let cache = Cache::new();
+        gateway.set_cache(cache.clone());
+        let authenticated = Arc::new(AtomicBool::new(false));
+        let message = Message {
+            id: "message".to_owned(),
+            nonuce: None,
+            channel: "channel".to_owned(),
+            author: "user".to_owned(),
+            content: "hello".to_owned(),
+            attachments: Vec::new(),
+            embeds: None,
+            mentions: Vec::new(),
+            replies: Vec::new(),
+        };
+
+        gateway
+            .process_gateway_event(GatewayEvent::Message(message), &authenticated)
+            .await
+            .expect("process event");
+
+        assert!(cache.message("message").await.is_some());
     }
 }
