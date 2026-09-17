@@ -6,7 +6,6 @@ use {
     },
     serde::{de::DeserializeOwned, ser::Serialize},
     serde_json::{json, Value},
-    serde_urlencoded::to_string as to_query_string,
     std::{
         sync::{
             atomic::{AtomicU64, Ordering},
@@ -62,13 +61,18 @@ struct HttpMetricsInner {
     body_decode_errors: AtomicU64,
 }
 
+#[derive(Debug)]
+struct HttpShared {
+    client: Client,
+    config: HttpConfig,
+    rate_limiter: RateLimiter,
+    metrics: HttpMetricsInner,
+}
+
 /// HTTP client for calling the Stoat REST API.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
-    client: Client,
-    config: HttpConfig,
-    rate_limiter: Arc<RateLimiter>,
-    metrics: Arc<HttpMetricsInner>,
+    shared: Arc<HttpShared>,
 }
 
 impl HttpClient {
@@ -86,17 +90,19 @@ impl HttpClient {
             .build()?;
 
         Ok(Self {
-            client,
-            config,
-            rate_limiter: Arc::new(RateLimiter::default()),
-            metrics: Arc::new(HttpMetricsInner::default()),
+            shared: Arc::new(HttpShared {
+                client,
+                config,
+                rate_limiter: RateLimiter::default(),
+                metrics: HttpMetricsInner::default(),
+            }),
         })
     }
 
     fn make_url(&self, path: impl AsRef<str>) -> String {
         format!(
             "{}/{}",
-            self.config.api_url.trim_end_matches('/'),
+            self.shared.config.api_url.trim_end_matches('/'),
             path.as_ref().trim_start_matches('/')
         )
     }
@@ -104,7 +110,7 @@ impl HttpClient {
     fn make_cdn_url(&self, tag: AttachmentTag) -> String {
         format!(
             "{}/{}",
-            self.config.cdn_url.trim_end_matches('/'),
+            self.shared.config.cdn_url.trim_end_matches('/'),
             tag.as_str()
         )
     }
@@ -116,22 +122,25 @@ impl HttpClient {
         build_request: impl Fn() -> RequestBuilder,
     ) -> KahoResult<Response> {
         loop {
-            let waited = self.rate_limiter.acquire(&method, path).await;
-            self.metrics
+            let waited = self.shared.rate_limiter.acquire(&method, path).await;
+            self.shared
+                .metrics
                 .rate_limit_wait_micros
                 .fetch_add(duration_to_micros(waited), Ordering::Relaxed);
 
-            self.metrics
+            self.shared
+                .metrics
                 .requests_started
                 .fetch_add(1, Ordering::Relaxed);
             let request_started = Instant::now();
             let response = match build_request().send().await {
                 Ok(response) => response,
                 Err(error) => {
-                    self.metrics
+                    self.shared
+                        .metrics
                         .transport_errors
                         .fetch_add(1, Ordering::Relaxed);
-                    self.metrics.last_response_headers_micros.store(
+                    self.shared.metrics.last_response_headers_micros.store(
                         duration_to_micros(request_started.elapsed()),
                         Ordering::Relaxed,
                     );
@@ -140,13 +149,16 @@ impl HttpClient {
             };
 
             let response_latency = request_started.elapsed();
-            self.metrics
+            self.shared
+                .metrics
                 .responses_received
                 .fetch_add(1, Ordering::Relaxed);
-            self.metrics
+            self.shared
+                .metrics
                 .last_response_headers_micros
                 .store(duration_to_micros(response_latency), Ordering::Relaxed);
-            self.rate_limiter
+            self.shared
+                .rate_limiter
                 .update_from_headers(&method, path, response.headers())
                 .await;
 
@@ -161,7 +173,10 @@ impl HttpClient {
             );
 
             if status == StatusCode::TOO_MANY_REQUESTS {
-                self.metrics.rate_limit_hits.fetch_add(1, Ordering::Relaxed);
+                self.shared
+                    .metrics
+                    .rate_limit_hits
+                    .fetch_add(1, Ordering::Relaxed);
                 let retry_after = self
                     .decode_json::<RateLimitedResponse>(response)
                     .await
@@ -174,83 +189,101 @@ impl HttpClient {
                     retry_after_ms = retry_after,
                     "Stoat rate limit reached"
                 );
-                self.rate_limiter
+                self.shared
+                    .rate_limiter
                     .update_retry_after(&method, path, retry_after)
                     .await;
                 continue;
             }
 
             if !status.is_success() {
-                self.metrics
+                self.shared
+                    .metrics
                     .failed_responses
                     .fetch_add(1, Ordering::Relaxed);
                 return Err(KahoError::FailedRequest(response));
             }
 
-            self.metrics
+            self.shared
+                .metrics
                 .successful_responses
                 .fetch_add(1, Ordering::Relaxed);
             return Ok(response);
         }
     }
 
-    async fn decode_json<T: DeserializeOwned>(&self, response: Response) -> KahoResult<T> {
-        let started = Instant::now();
-        let result = response.json().await;
-        self.metrics
+    fn record_body_decode<T>(
+        &self,
+        started: Instant,
+        result: Result<T, reqwest::Error>,
+    ) -> KahoResult<T> {
+        self.shared
+            .metrics
             .body_decode_micros
             .fetch_add(duration_to_micros(started.elapsed()), Ordering::Relaxed);
 
-        match result {
-            Ok(value) => Ok(value),
-            Err(error) => {
-                self.metrics
-                    .body_decode_errors
-                    .fetch_add(1, Ordering::Relaxed);
-                Err(error.into())
-            }
-        }
+        result.map_err(|error| {
+            self.shared
+                .metrics
+                .body_decode_errors
+                .fetch_add(1, Ordering::Relaxed);
+            error.into()
+        })
+    }
+
+    async fn decode_json<T: DeserializeOwned>(&self, response: Response) -> KahoResult<T> {
+        let started = Instant::now();
+        let result = response.json().await;
+        self.record_body_decode(started, result)
     }
 
     async fn decode_bytes(&self, response: Response) -> KahoResult<Vec<u8>> {
         let started = Instant::now();
         let result = response.bytes().await;
-        self.metrics
-            .body_decode_micros
-            .fetch_add(duration_to_micros(started.elapsed()), Ordering::Relaxed);
-
-        match result {
-            Ok(bytes) => Ok(bytes.to_vec()),
-            Err(error) => {
-                self.metrics
-                    .body_decode_errors
-                    .fetch_add(1, Ordering::Relaxed);
-                Err(error.into())
-            }
-        }
+        self.record_body_decode(started, result)
+            .map(|bytes| bytes.to_vec())
     }
 
     /// Return a point-in-time HTTP diagnostics snapshot.
     pub fn metrics(&self) -> HttpMetrics {
         HttpMetrics {
-            requests_started: self.metrics.requests_started.load(Ordering::Relaxed),
-            responses_received: self.metrics.responses_received.load(Ordering::Relaxed),
-            successful_responses: self.metrics.successful_responses.load(Ordering::Relaxed),
-            failed_responses: self.metrics.failed_responses.load(Ordering::Relaxed),
-            transport_errors: self.metrics.transport_errors.load(Ordering::Relaxed),
-            rate_limit_hits: self.metrics.rate_limit_hits.load(Ordering::Relaxed),
+            requests_started: self.shared.metrics.requests_started.load(Ordering::Relaxed),
+            responses_received: self
+                .shared
+                .metrics
+                .responses_received
+                .load(Ordering::Relaxed),
+            successful_responses: self
+                .shared
+                .metrics
+                .successful_responses
+                .load(Ordering::Relaxed),
+            failed_responses: self.shared.metrics.failed_responses.load(Ordering::Relaxed),
+            transport_errors: self.shared.metrics.transport_errors.load(Ordering::Relaxed),
+            rate_limit_hits: self.shared.metrics.rate_limit_hits.load(Ordering::Relaxed),
             rate_limit_wait: Duration::from_micros(
-                self.metrics.rate_limit_wait_micros.load(Ordering::Relaxed),
+                self.shared
+                    .metrics
+                    .rate_limit_wait_micros
+                    .load(Ordering::Relaxed),
             ),
             last_response_headers_latency: Duration::from_micros(
-                self.metrics
+                self.shared
+                    .metrics
                     .last_response_headers_micros
                     .load(Ordering::Relaxed),
             ),
             body_decode_time: Duration::from_micros(
-                self.metrics.body_decode_micros.load(Ordering::Relaxed),
+                self.shared
+                    .metrics
+                    .body_decode_micros
+                    .load(Ordering::Relaxed),
             ),
-            body_decode_errors: self.metrics.body_decode_errors.load(Ordering::Relaxed),
+            body_decode_errors: self
+                .shared
+                .metrics
+                .body_decode_errors
+                .load(Ordering::Relaxed),
         }
     }
 
@@ -258,17 +291,49 @@ impl HttpClient {
     pub async fn get<T: DeserializeOwned>(&self, path: impl AsRef<str>) -> KahoResult<T> {
         let path = path.as_ref();
         let response = self
-            .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
+            .send_rate_limited(Method::GET, path, || {
+                self.shared.client.get(self.make_url(path))
+            })
             .await?;
 
         self.decode_json(response).await
+    }
+
+    async fn get_query<T: DeserializeOwned, Q: Serialize + ?Sized>(
+        &self,
+        path: impl AsRef<str>,
+        query: &Q,
+    ) -> KahoResult<T> {
+        let path = path.as_ref();
+        let response = self
+            .send_rate_limited(Method::GET, path, || {
+                self.shared.client.get(self.make_url(path)).query(query)
+            })
+            .await?;
+
+        self.decode_json(response).await
+    }
+
+    async fn delete_query<Q: Serialize + ?Sized>(
+        &self,
+        path: impl AsRef<str>,
+        query: &Q,
+    ) -> KahoResult {
+        let path = path.as_ref();
+        self.send_rate_limited(Method::DELETE, path, || {
+            self.shared.client.delete(self.make_url(path)).query(query)
+        })
+        .await?;
+        Ok(())
     }
 
     /// Send a GET request and return the raw response bytes.
     pub async fn get_bytes(&self, path: impl AsRef<str>) -> KahoResult<Vec<u8>> {
         let path = path.as_ref();
         let response = self
-            .send_rate_limited(Method::GET, path, || self.client.get(self.make_url(path)))
+            .send_rate_limited(Method::GET, path, || {
+                self.shared.client.get(self.make_url(path))
+            })
             .await?;
 
         self.decode_bytes(response).await
@@ -283,7 +348,7 @@ impl HttpClient {
         let path = path.as_ref();
         let response = self
             .send_rate_limited(Method::POST, path, || {
-                self.client.post(self.make_url(path)).json(&payload)
+                self.shared.client.post(self.make_url(path)).json(&payload)
             })
             .await?;
 
@@ -294,7 +359,7 @@ impl HttpClient {
     pub async fn post_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
         let path = path.as_ref();
         self.send_rate_limited(Method::POST, path, || {
-            self.client.post(self.make_url(path)).json(&payload)
+            self.shared.client.post(self.make_url(path)).json(&payload)
         })
         .await?;
 
@@ -305,7 +370,7 @@ impl HttpClient {
     pub async fn patch_empty<U: Serialize>(&self, path: impl AsRef<str>, payload: U) -> KahoResult {
         let path = path.as_ref();
         self.send_rate_limited(Method::PATCH, path, || {
-            self.client.patch(self.make_url(path)).json(&payload)
+            self.shared.client.patch(self.make_url(path)).json(&payload)
         })
         .await?;
 
@@ -316,7 +381,7 @@ impl HttpClient {
     pub async fn put<T: Serialize>(&self, path: impl AsRef<str>, payload: T) -> KahoResult {
         let path = path.as_ref();
         self.send_rate_limited(Method::PUT, path, || {
-            self.client.put(self.make_url(path)).json(&payload)
+            self.shared.client.put(self.make_url(path)).json(&payload)
         })
         .await?;
 
@@ -332,7 +397,7 @@ impl HttpClient {
         let path = path.as_ref();
         let response = self
             .send_rate_limited(Method::PUT, path, || {
-                self.client.put(self.make_url(path)).json(&payload)
+                self.shared.client.put(self.make_url(path)).json(&payload)
             })
             .await?;
 
@@ -348,7 +413,7 @@ impl HttpClient {
         let path = path.as_ref();
         let response = self
             .send_rate_limited(Method::PATCH, path, || {
-                self.client.patch(self.make_url(path)).json(&payload)
+                self.shared.client.patch(self.make_url(path)).json(&payload)
             })
             .await?;
 
@@ -374,7 +439,7 @@ impl HttpClient {
             .send_rate_limited(Method::POST, &path, || {
                 let part = Part::bytes(bytes.clone()).file_name(filename.clone());
                 let form = Form::new().part("file", part);
-                self.client.post(url.clone()).multipart(form)
+                self.shared.client.post(url.clone()).multipart(form)
             })
             .await?;
 
@@ -389,7 +454,7 @@ impl HttpClient {
     ) -> KahoResult {
         let path = path.as_ref();
         self.send_rate_limited(Method::DELETE, path, || {
-            let mut request = self.client.delete(self.make_url(path));
+            let mut request = self.shared.client.delete(self.make_url(path));
 
             if let Some(payload) = payload.as_ref() {
                 request = request.json(payload);
@@ -411,7 +476,7 @@ impl HttpClient {
         let path = path.as_ref();
         let response = self
             .send_rate_limited(Method::DELETE, path, || {
-                let mut request = self.client.delete(self.make_url(path));
+                let mut request = self.shared.client.delete(self.make_url(path));
 
                 if let Some(payload) = payload.as_ref() {
                     request = request.json(payload);
@@ -702,16 +767,11 @@ impl HttpClient {
         channel_id: &str,
         query: impl Into<Option<FetchMessageQuery>>,
     ) -> KahoResult<Vec<Message>> {
-        let mut path = Endpoint::ChannelMessages(channel_id.to_owned()).path();
-
-        if let Some(q) = query.into() {
-            let encoded_query = to_query_string(&q)
-                .map_err(|error| KahoError::Other(format!("Failed to encode query: {error}")))?;
-            path.push('?');
-            path.push_str(&encoded_query);
+        let path = Endpoint::ChannelMessages(channel_id.to_owned()).path();
+        match query.into() {
+            Some(query) => self.get_query(path, &query).await,
+            None => self.get(path).await,
         }
-
-        self.get(path).await
     }
 
     /// Send a message in the specified channel.
@@ -858,15 +918,11 @@ impl HttpClient {
         channel_id: &str,
         query: impl Into<Option<ChannelCloseQuery>>,
     ) -> KahoResult {
-        let mut path = Endpoint::Channel(channel_id.to_owned()).path();
-        if let Some(q) = query.into() {
-            let encoded = to_query_string(q).unwrap_or_default();
-            if !encoded.is_empty() {
-                path.push('?');
-                path.push_str(&encoded);
-            }
+        let path = Endpoint::Channel(channel_id.to_owned()).path();
+        match query.into() {
+            Some(query) => self.delete_query(path, &query).await,
+            None => self.delete(path, None::<()>).await,
         }
-        self.delete(path, None::<()>).await
     }
 
     /// Edit the channel.
@@ -1189,15 +1245,11 @@ impl HttpClient {
         server_id: &str,
         query: impl Into<Option<FetchMembersQuery>>,
     ) -> KahoResult<MemberList> {
-        let mut path = Endpoint::ServerMembers(server_id.to_owned()).path();
-        if let Some(q) = query.into() {
-            let encoded = to_query_string(q).unwrap_or_default();
-            if !encoded.is_empty() {
-                path.push('?');
-                path.push_str(&encoded);
-            }
+        let path = Endpoint::ServerMembers(server_id.to_owned()).path();
+        match query.into() {
+            Some(query) => self.get_query(path, &query).await,
+            None => self.get(path).await,
         }
-        self.get(path).await
     }
 
     /// Fetch a server member.
@@ -1223,11 +1275,13 @@ impl HttpClient {
         member_id: &str,
         include_roles: bool,
     ) -> KahoResult<MemberResponse> {
-        let mut path = Endpoint::ServerMember(server_id.to_owned(), member_id.to_owned()).path();
+        let path = Endpoint::ServerMember(server_id.to_owned(), member_id.to_owned()).path();
         if include_roles {
-            path.push_str("?roles=true");
+            let query = [("roles", true)];
+            self.get_query(path, &query).await
+        } else {
+            self.get(path).await
         }
-        self.get(path).await
     }
 
     /// Kick a server member.
@@ -1259,12 +1313,9 @@ impl HttpClient {
         server_id: &str,
         payload: impl Into<MembersExperimentalQuery>,
     ) -> KahoResult<MemberList> {
-        self.get(format!(
-            "{}?{}",
-            Endpoint::ServerMemberExperimentalQuery(server_id.to_owned()).path(),
-            to_query_string(payload.into()).unwrap_or_default()
-        ))
-        .await
+        let path = Endpoint::ServerMemberExperimentalQuery(server_id.to_owned()).path();
+        let query = payload.into();
+        self.get_query(path, &query).await
     }
 
     /// Ban a user.

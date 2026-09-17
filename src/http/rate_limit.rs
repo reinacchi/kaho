@@ -13,20 +13,15 @@ const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 /// Tracks Stoat REST rate-limit buckets and reserves capacity before requests are sent.
 #[derive(Debug)]
 pub struct RateLimiter {
-    state: Mutex<RateLimitState>,
+    state: Mutex<HashMap<&'static str, BucketState>>,
 }
 
 impl Default for RateLimiter {
     fn default() -> Self {
         Self {
-            state: Mutex::new(RateLimitState::default()),
+            state: Mutex::new(HashMap::new()),
         }
     }
-}
-
-#[derive(Debug, Default)]
-struct RateLimitState {
-    buckets: HashMap<String, BucketState>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +51,6 @@ impl RateLimiter {
     ///
     /// The returned duration is the total amount of time spent waiting locally.
     pub async fn acquire(&self, method: &Method, path: &str) -> Duration {
-        let route = route_key(method, path);
         let fallback = static_bucket(method, path);
         let mut total_wait = Duration::ZERO;
 
@@ -64,7 +58,7 @@ impl RateLimiter {
             let wait_for = {
                 let mut state = self.state.lock().await;
                 let now = Instant::now();
-                let bucket = state.buckets.entry(route.clone()).or_insert_with(|| {
+                let bucket = state.entry(fallback.name).or_insert_with(|| {
                     let limit = fallback.limit;
                     BucketState {
                         limit,
@@ -113,11 +107,10 @@ impl RateLimiter {
         let header_remaining = header_u32(headers, "X-RateLimit-Remaining");
         let header_reset_after = header_u64(headers, "X-RateLimit-Reset-After");
         let fallback = static_bucket(method, path);
-        let route = route_key(method, path);
         let now = Instant::now();
 
         let mut state = self.state.lock().await;
-        let previous = state.buckets.get(&route).cloned();
+        let previous = state.get(fallback.name).cloned();
         let limit = header_limit
             .or_else(|| previous.as_ref().map(|bucket| bucket.limit))
             .unwrap_or(fallback.limit);
@@ -135,8 +128,8 @@ impl RateLimiter {
             _ => reported_remaining,
         };
 
-        state.buckets.insert(
-            route,
+        state.insert(
+            fallback.name,
             BucketState {
                 limit,
                 remaining,
@@ -147,17 +140,15 @@ impl RateLimiter {
 
     /// Mark the route as rate-limited for the provided retry interval.
     pub async fn update_retry_after(&self, method: &Method, path: &str, retry_after_ms: u64) {
-        let route = route_key(method, path);
         let fallback = static_bucket(method, path);
 
         let mut state = self.state.lock().await;
         let limit = state
-            .buckets
-            .get(&route)
+            .get(fallback.name)
             .map(|bucket| bucket.limit)
             .unwrap_or(fallback.limit);
-        state.buckets.insert(
-            route,
+        state.insert(
+            fallback.name,
             BucketState {
                 limit,
                 remaining: 0,
@@ -176,68 +167,68 @@ struct StaticBucket {
 fn static_bucket(method: &Method, path: &str) -> StaticBucket {
     let path = clean_url_path(path);
 
-    if method == Method::PATCH && matches_pattern(&path, "/users/:id") {
+    if method == Method::PATCH && matches_pattern(path, "users/:id") {
         return StaticBucket {
             name: "PATCH /users/:id",
             limit: 2,
         };
     }
 
-    if method == Method::POST && matches_pattern(&path, "/channels/:id/messages") {
+    if method == Method::POST && matches_pattern(path, "channels/:id/messages") {
         return StaticBucket {
             name: "POST /channels/:id/messages",
             limit: 10,
         };
     }
 
-    if method == Method::DELETE && path.starts_with("/auth") {
+    if method == Method::DELETE && path.starts_with("auth") {
         return StaticBucket {
             name: "DELETE /auth",
             limit: 255,
         };
     }
 
-    if matches_pattern(&path, "/users/:id/default_avatar") {
+    if matches_pattern(path, "users/:id/default_avatar") {
         StaticBucket {
             name: "/users/:id/default_avatar",
             limit: 255,
         }
-    } else if path.starts_with("/users") {
+    } else if path.starts_with("users") {
         StaticBucket {
             name: "/users",
             limit: 20,
         }
-    } else if path.starts_with("/bots") {
+    } else if path.starts_with("bots") {
         StaticBucket {
             name: "/bots",
             limit: 10,
         }
-    } else if path.starts_with("/channels") {
+    } else if path.starts_with("channels") {
         StaticBucket {
             name: "/channels",
             limit: 15,
         }
-    } else if path.starts_with("/servers") {
+    } else if path.starts_with("servers") {
         StaticBucket {
             name: "/servers",
             limit: 5,
         }
-    } else if path.starts_with("/auth") {
+    } else if path.starts_with("auth") {
         StaticBucket {
             name: "/auth",
             limit: 3,
         }
-    } else if path.starts_with("/safety/report") {
+    } else if path.starts_with("safety/report") {
         StaticBucket {
             name: "/safety/report",
             limit: 3,
         }
-    } else if path.starts_with("/safety") {
+    } else if path.starts_with("safety") {
         StaticBucket {
             name: "/safety",
             limit: 15,
         }
-    } else if path.starts_with("/swagger") {
+    } else if path.starts_with("swagger") {
         StaticBucket {
             name: "/swagger",
             limit: 100,
@@ -250,28 +241,29 @@ fn static_bucket(method: &Method, path: &str) -> StaticBucket {
     }
 }
 
-fn route_key(method: &Method, path: &str) -> String {
-    static_bucket(method, path).name.to_owned()
+#[warn(dead_code)]
+fn route_key(method: &Method, path: &str) -> &'static str {
+    static_bucket(method, path).name
 }
 
-fn clean_url_path(path: &str) -> String {
-    let path = path.split('?').next().unwrap_or(path).trim();
-    let path = format!("/{}", path.trim_start_matches('/').trim_end_matches('/'));
-    if path == "/" {
-        "/".to_string()
-    } else {
-        path
-    }
+fn clean_url_path(path: &str) -> &str {
+    path.split_once('?')
+        .map_or(path, |(path, _)| path)
+        .trim()
+        .trim_matches('/')
 }
 
 fn matches_pattern(path: &str, pattern: &str) -> bool {
-    let path_parts = path.trim_matches('/').split('/');
-    let pattern_parts = pattern.trim_matches('/').split('/');
+    let mut path_parts = path.split('/');
+    let mut pattern_parts = pattern.split('/');
 
-    path_parts
-        .zip(pattern_parts)
-        .all(|(part, pattern)| pattern.starts_with(':') || part == pattern)
-        && path.trim_matches('/').split('/').count() == pattern.trim_matches('/').split('/').count()
+    loop {
+        match (path_parts.next(), pattern_parts.next()) {
+            (Some(part), Some(pattern)) if pattern.starts_with(':') || part == pattern => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -307,6 +299,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn route_key_ignores_query_parameters_without_allocating() {
+        assert_eq!(
+            route_key(&Method::POST, "/channels/abc/messages?limit=10"),
+            "POST /channels/:id/messages"
+        );
+    }
+
     #[tokio::test]
     async fn acquire_reserves_capacity_before_requests_are_sent() {
         let limiter = RateLimiter::default();
@@ -320,7 +320,6 @@ mod tests {
 
         let state = limiter.state.lock().await;
         let bucket = state
-            .buckets
             .get("POST /channels/:id/messages")
             .expect("message bucket");
         assert_eq!(bucket.remaining, 0);
@@ -346,7 +345,6 @@ mod tests {
 
         let state = limiter.state.lock().await;
         let bucket = state
-            .buckets
             .get("POST /channels/:id/messages")
             .expect("message bucket");
         assert_eq!(bucket.remaining, 0);

@@ -18,8 +18,7 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 use crate::models::{
-    Channel, GatewayEvent, Id, Member, MemberId, MemberList, Message, Role, Server, ServerBans,
-    User,
+    Channel, GatewayEvent, Id, Member, MemberList, Message, Role, Server, ServerBans, User,
 };
 
 /// Shared in-memory cache for users, servers, channels, members, roles, and messages.
@@ -35,7 +34,7 @@ struct CacheInner {
     users: HashMap<Id, User>,
     servers: HashMap<Id, Server>,
     channels: HashMap<Id, Channel>,
-    members: HashMap<MemberId, Member>,
+    members: HashMap<Id, HashMap<Id, Member>>,
     messages: HashMap<Id, Message>,
     message_order: VecDeque<Id>,
     message_capacity: usize,
@@ -180,7 +179,7 @@ impl CacheInner {
                 }
                 for value in &ready.members {
                     if let Some(member) = decode_ready::<Member>(value, "member") {
-                        self.members.insert(member.id.clone(), member);
+                        self.insert_member(member);
                     }
                 }
             }
@@ -248,31 +247,17 @@ impl CacheInner {
                 }
             }
             GatewayEvent::ServerDelete(event) => {
-                let mut channel_ids: HashSet<Id> = self
-                    .channels
-                    .iter()
-                    .filter_map(|(id, channel)| {
-                        (channel_server_id(channel) == Some(event.id.as_str())).then(|| id.clone())
-                    })
-                    .collect();
-                if let Some(server) = self.servers.remove(&event.id) {
-                    channel_ids.extend(server.channels);
-                }
-                for channel_id in channel_ids {
-                    self.channels.remove(&channel_id);
-                    self.remove_messages_for_channel(&channel_id);
-                }
-                self.members
-                    .retain(|id, _| id.server.as_str() != event.id.as_str());
+                self.remove_server(&event.id);
             }
             GatewayEvent::ServerMemberUpdate(event) => {
                 let evict = self
                     .members
-                    .get_mut(&event.id)
+                    .get_mut(&event.id.server)
+                    .and_then(|members| members.get_mut(&event.id.user))
                     .map(|member| !merge_partial(member, &event.data, &event.clear))
                     .unwrap_or(false);
                 if evict {
-                    self.members.remove(&event.id);
+                    self.remove_member(&event.id.server, &event.id.user);
                 }
             }
             GatewayEvent::ServerMemberJoin(event) => {
@@ -280,13 +265,10 @@ impl CacheInner {
                 // Be tolerant of older join payloads while keeping one canonical key.
                 member.id.server = event.id.clone();
                 member.id.user = event.user.clone();
-                self.members.insert(member.id.clone(), member);
+                self.insert_member(member);
             }
             GatewayEvent::ServerMemberLeave(event) => {
-                self.members.remove(&MemberId {
-                    server: event.id.clone(),
-                    user: event.user.clone(),
-                });
+                self.remove_member(&event.id, &event.user);
             }
             GatewayEvent::ServerRoleUpdate(event) => {
                 let mut evict_server = false;
@@ -331,14 +313,7 @@ impl CacheInner {
                 self.apply_role_ranks(&event.id, &event.ranks);
             }
             GatewayEvent::ServerRoleDelete(event) => {
-                if let Some(server) = self.servers.get_mut(&event.id) {
-                    server.roles.remove(&event.role_id);
-                }
-                for (id, member) in &mut self.members {
-                    if id.server.as_str() == event.id.as_str() {
-                        member.roles.retain(|role_id| role_id != &event.role_id);
-                    }
-                }
+                self.remove_role(&event.id, &event.role_id);
             }
             GatewayEvent::UserUpdate(event) => {
                 let evict = self
@@ -355,8 +330,10 @@ impl CacheInner {
             }
             GatewayEvent::UserPlatformWipe(event) => {
                 self.users.remove(&event.user_id);
-                self.members
-                    .retain(|id, _| id.user.as_str() != event.user_id.as_str());
+                self.members.retain(|_, members| {
+                    members.remove(&event.user_id);
+                    !members.is_empty()
+                });
 
                 self.retain_messages(|message| message.author.as_str() != event.user_id.as_str());
 
@@ -387,6 +364,63 @@ impl CacheInner {
             }
             _ => {}
         }
+    }
+
+    fn insert_member(&mut self, member: Member) -> Option<Member> {
+        let server_id = member.id.server.clone();
+        let user_id = member.id.user.clone();
+        self.members
+            .entry(server_id)
+            .or_default()
+            .insert(user_id, member)
+    }
+
+    fn remove_member(&mut self, server_id: &str, user_id: &str) -> Option<Member> {
+        let (removed, empty) = {
+            let members = self.members.get_mut(server_id)?;
+            let removed = members.remove(user_id);
+            (removed, members.is_empty())
+        };
+        if empty {
+            self.members.remove(server_id);
+        }
+        removed
+    }
+
+    fn remove_role(&mut self, server_id: &str, role_id: &str) -> Option<Role> {
+        let removed = self
+            .servers
+            .get_mut(server_id)
+            .and_then(|server| server.roles.remove(role_id));
+
+        if let Some(members) = self.members.get_mut(server_id) {
+            for member in members.values_mut() {
+                member.roles.retain(|id| id != role_id);
+            }
+        }
+
+        removed
+    }
+
+    fn remove_server(&mut self, server_id: &str) -> Option<Server> {
+        let mut channel_ids: HashSet<Id> = self
+            .channels
+            .iter()
+            .filter_map(|(id, channel)| {
+                (channel_server_id(channel) == Some(server_id)).then(|| id.clone())
+            })
+            .collect();
+        let removed = self.servers.remove(server_id);
+        if let Some(server) = &removed {
+            channel_ids.extend(server.channels.iter().cloned());
+        }
+
+        for channel_id in channel_ids {
+            self.channels.remove(&channel_id);
+            self.remove_messages_for_channel(&channel_id);
+        }
+        self.members.remove(server_id);
+        removed
     }
 
     fn apply_role_ranks(&mut self, server_id: &str, ranks: &[Id]) {
@@ -435,13 +469,16 @@ impl Cache {
             inner.users.insert(user.id.clone(), user.clone());
         }
         for member in &member_list.members {
-            inner.members.insert(member.id.clone(), member.clone());
+            inner.insert_member(member.clone());
         }
     }
 
     /// Insert every cacheable model contained in a server bans response.
     pub async fn insert_server_bans(&self, server_bans: &ServerBans) {
-        self.insert_users(server_bans.users.clone()).await;
+        let mut inner = self.inner.write().await;
+        for user in &server_bans.users {
+            inner.users.insert(user.id.clone(), user.clone());
+        }
     }
 
     /// Insert or replace a user in the cache.
@@ -503,28 +540,7 @@ impl Cache {
 
     /// Remove a cached server and dependent member/channel state.
     pub async fn remove_server(&self, id: impl AsRef<str>) -> Option<Server> {
-        let id = id.as_ref();
-        let mut inner = self.inner.write().await;
-        let removed = inner.servers.remove(id);
-        inner
-            .members
-            .retain(|member_id, _| member_id.server.as_str() != id);
-
-        let mut channel_ids: HashSet<Id> = inner
-            .channels
-            .iter()
-            .filter_map(|(channel_id, channel)| {
-                (channel_server_id(channel) == Some(id)).then(|| channel_id.clone())
-            })
-            .collect();
-        if let Some(server) = &removed {
-            channel_ids.extend(server.channels.iter().cloned());
-        }
-        for channel_id in channel_ids {
-            inner.channels.remove(&channel_id);
-            inner.remove_messages_for_channel(&channel_id);
-        }
-        removed
+        self.inner.write().await.remove_server(id.as_ref())
     }
 
     /// Fetch a role from a cached server.
@@ -584,19 +600,10 @@ impl Cache {
         server_id: impl AsRef<str>,
         role_id: impl AsRef<str>,
     ) -> Option<Role> {
-        let server_id = server_id.as_ref();
-        let role_id = role_id.as_ref();
-        let mut inner = self.inner.write().await;
-        let removed = inner
-            .servers
-            .get_mut(server_id)
-            .and_then(|server| server.roles.remove(role_id));
-        for (id, member) in &mut inner.members {
-            if id.server.as_str() == server_id {
-                member.roles.retain(|id| id != role_id);
-            }
-        }
-        removed
+        self.inner
+            .write()
+            .await
+            .remove_role(server_id.as_ref(), role_id.as_ref())
     }
 
     /// Insert or replace a channel in the cache.
@@ -629,18 +636,14 @@ impl Cache {
 
     /// Insert or replace a server member in the cache.
     pub async fn insert_member(&self, member: Member) -> Option<Member> {
-        self.inner
-            .write()
-            .await
-            .members
-            .insert(member.id.clone(), member)
+        self.inner.write().await.insert_member(member)
     }
 
     /// Insert or replace several server members.
     pub async fn insert_members(&self, members: impl IntoIterator<Item = Member>) {
         let mut inner = self.inner.write().await;
         for member in members {
-            inner.members.insert(member.id.clone(), member);
+            inner.insert_member(member);
         }
     }
 
@@ -654,24 +657,20 @@ impl Cache {
             .read()
             .await
             .members
-            .get(&MemberId {
-                server: server_id.as_ref().to_owned(),
-                user: user_id.as_ref().to_owned(),
-            })
+            .get(server_id.as_ref())
+            .and_then(|members| members.get(user_id.as_ref()))
             .cloned()
     }
 
     /// Fetch all cached members for a server.
     pub async fn members(&self, server_id: impl AsRef<str>) -> Vec<Member> {
-        let server_id = server_id.as_ref();
         self.inner
             .read()
             .await
             .members
-            .iter()
-            .filter(|(id, _)| id.server.as_str() == server_id)
-            .map(|(_, member)| member.clone())
-            .collect()
+            .get(server_id.as_ref())
+            .map(|members| members.values().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Remove a cached server member by server and user ID.
@@ -680,10 +679,10 @@ impl Cache {
         server_id: impl AsRef<str>,
         user_id: impl AsRef<str>,
     ) -> Option<Member> {
-        self.inner.write().await.members.remove(&MemberId {
-            server: server_id.as_ref().to_owned(),
-            user: user_id.as_ref().to_owned(),
-        })
+        self.inner
+            .write()
+            .await
+            .remove_member(server_id.as_ref(), user_id.as_ref())
     }
 
     /// Insert or replace a message in the bounded message cache.
@@ -741,7 +740,7 @@ impl Cache {
                 .map(|server| server.roles.len())
                 .sum(),
             channels: inner.channels.len(),
-            members: inner.members.len(),
+            members: inner.members.values().map(|members| members.len()).sum(),
             messages: inner.messages.len(),
         }
     }
@@ -840,8 +839,8 @@ mod tests {
 
     use super::Cache;
     use crate::models::{
-        Category, Channel, ChannelDeleteEvent, ChannelUpdateEvent, GatewayEvent, Message, Server,
-        TextChannel,
+        Category, Channel, ChannelDeleteEvent, ChannelUpdateEvent, GatewayEvent, Member, MemberId,
+        Message, Server, TextChannel,
     };
 
     fn message(id: &str) -> Message {
@@ -872,6 +871,34 @@ mod tests {
                 "role_permissions": {"role": {"a": 1, "d": 0}}
             }),
         })
+    }
+
+    fn member(server_id: &str, user_id: &str) -> Member {
+        Member {
+            id: MemberId {
+                server: server_id.to_owned(),
+                user: user_id.to_owned(),
+            },
+            ..Member::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn members_are_partitioned_by_server() {
+        let cache = Cache::new();
+        cache.insert_member(member("one", "user")).await;
+        cache.insert_member(member("two", "user")).await;
+
+        assert_eq!(cache.members("one").await.len(), 1);
+        assert_eq!(cache.members("two").await.len(), 1);
+        assert!(cache.member("one", "user").await.is_some());
+        assert!(cache.member("two", "user").await.is_some());
+        assert_eq!(cache.counts().await.members, 2);
+
+        cache.remove_server("one").await;
+        assert!(cache.member("one", "user").await.is_none());
+        assert!(cache.member("two", "user").await.is_some());
+        assert_eq!(cache.counts().await.members, 1);
     }
 
     #[tokio::test]

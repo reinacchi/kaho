@@ -240,12 +240,7 @@ impl<T: Into<String>> From<T> for MessageSend {
     fn from(content: T) -> Self {
         Self {
             content: content.into(),
-            attachments: Vec::new(),
-            embeds: Vec::new(),
-            flags: None,
-            interactions: Vec::new(),
-            masquerade: None,
-            replies: Vec::new(),
+            ..Self::default()
         }
     }
 }

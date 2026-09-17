@@ -52,7 +52,10 @@ pub struct KahoClient {
 
 impl KahoClient {
     /// Create a new instance.
-    pub fn new(http: HttpClient, mut gateway: GatewayClient) -> Self {
+    pub fn new(http: HttpClient, gateway: GatewayClient) -> Self {
+        #[cfg(feature = "cache")]
+        let mut gateway = gateway;
+
         #[cfg(feature = "cache")]
         let cache = {
             let cache = Cache::new();
@@ -60,7 +63,7 @@ impl KahoClient {
             cache
         };
 
-        KahoClient {
+        Self {
             http,
             gateway,
             #[cfg(feature = "cache")]
@@ -83,19 +86,10 @@ impl KahoClient {
 }
 
 /// Represents a builder pattern for constructing a KahoClient.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct KahoClientBuilder {
     token: Option<String>,
     gateway_timeouts: Option<(Duration, Duration)>,
-}
-
-impl Default for KahoClientBuilder {
-    fn default() -> Self {
-        Self {
-            token: None,
-            gateway_timeouts: None,
-        }
-    }
 }
 
 impl KahoClientBuilder {

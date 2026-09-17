@@ -67,18 +67,13 @@ pub struct GroupCreate {
 }
 
 /// Represents the type of a channel to create in a server.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub enum ChannelType {
     /// Represents the text variant for this public enum.
+    #[default]
     Text,
     /// Represents the voice variant for this public enum.
     Voice,
-}
-
-impl Default for ChannelType {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 /// Represents a request to update an existing channel.

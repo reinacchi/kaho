@@ -109,6 +109,14 @@ impl Default for GatewayMetricsInner {
     }
 }
 
+#[derive(Debug, Default)]
+struct GatewayShared {
+    loop_started: AtomicBool,
+    heartbeat_nonce: AtomicUsize,
+    awaiting_pong: AtomicBool,
+    metrics: GatewayMetricsInner,
+}
+
 #[derive(Debug)]
 struct QueuedGatewayEvent {
     enqueued_at: Instant,
@@ -119,14 +127,14 @@ struct QueuedGatewayEvent {
 #[derive(Debug, Clone)]
 pub struct GatewayEventStream {
     receiver: Receiver<QueuedGatewayEvent>,
-    metrics: Arc<GatewayMetricsInner>,
+    shared: Arc<GatewayShared>,
     observed_dropped_events: u64,
 }
 
 impl GatewayEventStream {
     /// Wait for the next gateway event.
     pub async fn next(&mut self) -> Option<KahoResult<GatewayEvent>> {
-        let dropped_events = self.metrics.dropped_events.load(Ordering::Relaxed);
+        let dropped_events = self.shared.metrics.dropped_events.load(Ordering::Relaxed);
         if dropped_events > self.observed_dropped_events {
             let dropped = dropped_events - self.observed_dropped_events;
             self.observed_dropped_events = dropped_events;
@@ -134,7 +142,7 @@ impl GatewayEventStream {
         }
 
         let queued = self.receiver.recv().await.ok()?;
-        self.metrics.last_queue_delay_micros.store(
+        self.shared.metrics.last_queue_delay_micros.store(
             duration_to_micros(queued.enqueued_at.elapsed()),
             Ordering::Relaxed,
         );
@@ -153,13 +161,9 @@ pub struct GatewayClient {
     client_receiver: Receiver<ClientEvent>,
     server_sender: Sender<QueuedGatewayEvent>,
     server_receiver: Receiver<QueuedGatewayEvent>,
-    loop_started: Arc<AtomicBool>,
-    shutdown_requested: Arc<AtomicBool>,
     shutdown_sender: watch::Sender<bool>,
     shutdown_receiver: watch::Receiver<bool>,
-    heartbeat_nonce: Arc<AtomicUsize>,
-    awaiting_pong: Arc<AtomicBool>,
-    metrics: Arc<GatewayMetricsInner>,
+    shared: Arc<GatewayShared>,
     #[cfg(feature = "cache")]
     cache: Option<Cache>,
 }
@@ -178,13 +182,9 @@ impl GatewayClient {
             client_sender,
             server_receiver,
             server_sender,
-            loop_started: Arc::new(AtomicBool::new(false)),
-            shutdown_requested: Arc::new(AtomicBool::new(false)),
             shutdown_sender,
             shutdown_receiver,
-            heartbeat_nonce: Arc::new(AtomicUsize::new(0)),
-            awaiting_pong: Arc::new(AtomicBool::new(false)),
-            metrics: Arc::new(GatewayMetricsInner::default()),
+            shared: Arc::new(GatewayShared::default()),
             #[cfg(feature = "cache")]
             cache: None,
         }
@@ -200,11 +200,10 @@ impl GatewayClient {
     ///
     /// Calling this method more than once while the loop is active is a no-op.
     pub async fn connect(&self) -> KahoResult<()> {
-        if self.loop_started.swap(true, Ordering::AcqRel) {
+        if self.shared.loop_started.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
 
-        self.shutdown_requested.store(false, Ordering::Release);
         let _ = self.shutdown_sender.send(false);
         self.set_connection_state(GatewayConnectionState::Connecting);
 
@@ -220,7 +219,6 @@ impl GatewayClient {
     ///
     /// A later call to [`GatewayClient::connect`] can start it again.
     pub fn disconnect(&self) {
-        self.shutdown_requested.store(true, Ordering::Release);
         let _ = self.shutdown_sender.send(true);
     }
 
@@ -229,7 +227,7 @@ impl GatewayClient {
         let mut first_attempt = true;
 
         loop {
-            if self.shutdown_requested.load(Ordering::Acquire) {
+            if *self.shutdown_receiver.borrow() {
                 self.set_connection_state(GatewayConnectionState::Disconnected);
                 break;
             }
@@ -241,9 +239,9 @@ impl GatewayClient {
             });
 
             let session = self.run_session().await;
-            self.awaiting_pong.store(false, Ordering::Release);
+            self.shared.awaiting_pong.store(false, Ordering::Release);
 
-            if self.shutdown_requested.load(Ordering::Acquire) {
+            if *self.shutdown_receiver.borrow() {
                 self.set_connection_state(GatewayConnectionState::Disconnected);
                 break;
             }
@@ -259,7 +257,10 @@ impl GatewayClient {
             }
 
             consecutive_failures = consecutive_failures.saturating_add(1);
-            self.metrics.reconnects.fetch_add(1, Ordering::Relaxed);
+            self.shared
+                .metrics
+                .reconnects
+                .fetch_add(1, Ordering::Relaxed);
 
             if self.config.max_reconnect_attempts != 0
                 && consecutive_failures > self.config.max_reconnect_attempts
@@ -292,7 +293,7 @@ impl GatewayClient {
             }
         }
 
-        self.loop_started.store(false, Ordering::Release);
+        self.shared.loop_started.store(false, Ordering::Release);
     }
 
     async fn run_session(&self) -> SessionEnd {
@@ -324,7 +325,7 @@ impl GatewayClient {
         if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
             *heartbeat = (None, None);
         }
-        self.awaiting_pong.store(false, Ordering::Release);
+        self.shared.awaiting_pong.store(false, Ordering::Release);
 
         let authentication = ClientEvent::Authenticate {
             token: self.config.token.clone(),
@@ -355,13 +356,13 @@ impl GatewayClient {
             }
         }
 
-        let authenticated = Arc::new(AtomicBool::new(false));
+        let authenticated = AtomicBool::new(false);
         let (write_stream, read_stream) = stream.split();
 
-        let read_loop = self.read_loop(read_stream, authenticated.clone());
+        let read_loop = self.read_loop(read_stream, &authenticated);
         let write_loop = self.write_loop(write_stream);
         let auth_watchdog =
-            authentication_watchdog(authenticated.clone(), self.config.authentication_timeout);
+            authentication_watchdog(&authenticated, self.config.authentication_timeout);
         let heartbeat_watchdog = self.heartbeat_watchdog();
 
         let result = select! {
@@ -382,7 +383,7 @@ impl GatewayClient {
         }
     }
 
-    async fn read_loop<S>(&self, mut read_stream: S, authenticated: Arc<AtomicBool>) -> KahoResult
+    async fn read_loop<S>(&self, mut read_stream: S, authenticated: &AtomicBool) -> KahoResult
     where
         S: Stream<Item = Result<Message, WsError>> + Unpin,
     {
@@ -412,7 +413,7 @@ impl GatewayClient {
             };
 
             match event {
-                Ok(event) => self.process_gateway_event(event, &authenticated).await?,
+                Ok(event) => self.process_gateway_event(event, authenticated).await?,
                 Err(error) => {
                     debug!(%error, "discarding malformed gateway event");
                     self.enqueue_result(Err(error));
@@ -467,7 +468,7 @@ impl GatewayClient {
 
         loop {
             sleep(check_interval).await;
-            if !self.awaiting_pong.load(Ordering::Acquire) {
+            if !self.shared.awaiting_pong.load(Ordering::Acquire) {
                 continue;
             }
 
@@ -488,7 +489,7 @@ impl GatewayClient {
     where
         S: Sink<Message, Error = WsError> + Unpin,
     {
-        if self.awaiting_pong.load(Ordering::Acquire) {
+        if self.shared.awaiting_pong.load(Ordering::Acquire) {
             let ping_age = self
                 .last_heartbeat
                 .lock()
@@ -509,6 +510,7 @@ impl GatewayClient {
         }
 
         let data = self
+            .shared
             .heartbeat_nonce
             .fetch_add(1, Ordering::Relaxed)
             .wrapping_add(1);
@@ -518,12 +520,12 @@ impl GatewayClient {
         if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
             heartbeat.0 = Some(sent_at);
         }
-        self.awaiting_pong.store(true, Ordering::Release);
+        self.shared.awaiting_pong.store(true, Ordering::Release);
 
         if let Err(error) =
             send_websocket_message(write_stream, message, self.config.write_timeout).await
         {
-            self.awaiting_pong.store(false, Ordering::Release);
+            self.shared.awaiting_pong.store(false, Ordering::Release);
             return Err(error);
         }
 
@@ -535,35 +537,26 @@ impl GatewayClient {
         event: GatewayEvent,
         authenticated: &AtomicBool,
     ) -> KahoResult {
-        let mut stack = vec![event];
+        self.record_event_received();
 
-        while let Some(event) = stack.pop() {
-            self.metrics.events_received.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut last_event) = self.metrics.last_event_at.lock() {
-                *last_event = Some(Instant::now());
+        let mut v = match event {
+            GatewayEvent::Bulk { mut v } => {
+                v.reverse();
+                v
             }
+            event => return self.process_gateway_event_item(event, authenticated).await,
+        };
 
+        while let Some(event) = v.pop() {
+            self.record_event_received();
             match event {
-                GatewayEvent::Pong { data } => {
-                    self.record_pong(data);
+                GatewayEvent::Bulk { v: mut nested } => {
+                    nested.reverse();
+                    v.extend(nested);
                 }
-                GatewayEvent::Bulk { v } => {
-                    stack.extend(v.into_iter().rev());
-                }
-                GatewayEvent::Error { error } => return Err(KahoError::Auth(error)),
-                GatewayEvent::LoggedOut => return Err(KahoError::GatewayLoggedOut),
                 event => {
-                    if matches!(&event, GatewayEvent::Authenticated | GatewayEvent::Ready(_)) {
-                        authenticated.store(true, Ordering::Release);
-                        self.set_connection_state(GatewayConnectionState::Connected);
-                    }
-
-                    #[cfg(feature = "cache")]
-                    if let Some(cache) = &self.cache {
-                        cache.update_from_event(&event).await;
-                    }
-
-                    self.enqueue_result(Ok(event));
+                    self.process_gateway_event_item(event, authenticated)
+                        .await?
                 }
             }
         }
@@ -571,19 +564,57 @@ impl GatewayClient {
         Ok(())
     }
 
+    fn record_event_received(&self) {
+        self.shared
+            .metrics
+            .events_received
+            .fetch_add(1, Ordering::Relaxed);
+        if let Ok(mut last_event) = self.shared.metrics.last_event_at.lock() {
+            *last_event = Some(Instant::now());
+        }
+    }
+
+    async fn process_gateway_event_item(
+        &self,
+        event: GatewayEvent,
+        authenticated: &AtomicBool,
+    ) -> KahoResult {
+        match event {
+            GatewayEvent::Pong { data } => self.record_pong(data),
+            GatewayEvent::Error { error } => return Err(KahoError::Auth(error)),
+            GatewayEvent::LoggedOut => return Err(KahoError::GatewayLoggedOut),
+            GatewayEvent::Bulk { .. } => unreachable!("bulk events are flattened before handling"),
+            event => {
+                if matches!(&event, GatewayEvent::Authenticated | GatewayEvent::Ready(_)) {
+                    authenticated.store(true, Ordering::Release);
+                    self.set_connection_state(GatewayConnectionState::Connected);
+                }
+
+                #[cfg(feature = "cache")]
+                if let Some(cache) = &self.cache {
+                    cache.update_from_event(&event).await;
+                }
+
+                self.enqueue_result(Ok(event));
+            }
+        }
+
+        Ok(())
+    }
+
     fn record_pong(&self, data: usize) {
-        if !self.awaiting_pong.load(Ordering::Acquire) {
+        if !self.shared.awaiting_pong.load(Ordering::Acquire) {
             return;
         }
 
-        if data != self.heartbeat_nonce.load(Ordering::Relaxed) {
+        if data != self.shared.heartbeat_nonce.load(Ordering::Relaxed) {
             return;
         }
 
         if let Ok(mut heartbeat) = self.last_heartbeat.lock() {
             heartbeat.1 = Some(Instant::now());
         }
-        self.awaiting_pong.store(false, Ordering::Release);
+        self.shared.awaiting_pong.store(false, Ordering::Release);
     }
 
     fn enqueue_result(&self, result: KahoResult<GatewayEvent>) {
@@ -601,6 +632,7 @@ impl GatewayClient {
                     match self.server_receiver.try_recv() {
                         Ok(_) => {
                             let dropped = self
+                                .shared
                                 .metrics
                                 .dropped_events
                                 .fetch_add(1, Ordering::Relaxed)
@@ -622,7 +654,10 @@ impl GatewayClient {
     }
 
     fn set_connection_state(&self, state: GatewayConnectionState) {
-        self.metrics.state.store(state as u8, Ordering::Release);
+        self.shared
+            .metrics
+            .state
+            .store(state as u8, Ordering::Release);
     }
 
     /// Queue a client event to be sent over the gateway connection.
@@ -648,14 +683,14 @@ impl GatewayClient {
     pub fn events(&self) -> GatewayEventStream {
         GatewayEventStream {
             receiver: self.server_receiver.clone(),
-            metrics: self.metrics.clone(),
-            observed_dropped_events: self.metrics.dropped_events.load(Ordering::Relaxed),
+            shared: self.shared.clone(),
+            observed_dropped_events: self.shared.metrics.dropped_events.load(Ordering::Relaxed),
         }
     }
 
     /// Return the current gateway connection state.
     pub fn connection_state(&self) -> GatewayConnectionState {
-        GatewayConnectionState::from_u8(self.metrics.state.load(Ordering::Acquire))
+        GatewayConnectionState::from_u8(self.shared.metrics.state.load(Ordering::Acquire))
     }
 
     /// Return whether the current gateway session has authenticated successfully.
@@ -680,6 +715,7 @@ impl GatewayClient {
     /// Return a point-in-time gateway diagnostics snapshot.
     pub fn metrics(&self) -> GatewayMetrics {
         let time_since_last_event = self
+            .shared
             .metrics
             .last_event_at
             .lock()
@@ -688,15 +724,18 @@ impl GatewayClient {
 
         GatewayMetrics {
             connection_state: self.connection_state(),
-            reconnects: self.metrics.reconnects.load(Ordering::Relaxed),
-            events_received: self.metrics.events_received.load(Ordering::Relaxed),
-            dropped_events: self.metrics.dropped_events.load(Ordering::Relaxed),
+            reconnects: self.shared.metrics.reconnects.load(Ordering::Relaxed),
+            events_received: self.shared.metrics.events_received.load(Ordering::Relaxed),
+            dropped_events: self.shared.metrics.dropped_events.load(Ordering::Relaxed),
             event_queue_depth: self.server_sender.len(),
             event_queue_capacity: self.server_sender.capacity().unwrap_or(0),
             outbound_queue_depth: self.client_sender.len(),
             outbound_queue_capacity: self.client_sender.capacity().unwrap_or(0),
             last_event_queue_delay: Duration::from_micros(
-                self.metrics.last_queue_delay_micros.load(Ordering::Relaxed),
+                self.shared
+                    .metrics
+                    .last_queue_delay_micros
+                    .load(Ordering::Relaxed),
             ),
             time_since_last_event,
             heartbeat_latency: self.latency(),
@@ -723,7 +762,7 @@ async fn wait_for_shutdown(mut receiver: watch::Receiver<bool>) {
 }
 
 async fn authentication_watchdog(
-    authenticated: Arc<AtomicBool>,
+    authenticated: &AtomicBool,
     authentication_timeout: Duration,
 ) -> KahoResult {
     sleep(authentication_timeout.max(Duration::from_millis(100))).await;
@@ -893,7 +932,7 @@ mod tests {
     #[cfg(feature = "cache")]
     #[tokio::test]
     async fn gateway_updates_cache_before_application_polling() {
-        use std::sync::{atomic::AtomicBool, Arc};
+        use std::sync::atomic::AtomicBool;
 
         use crate::{cache::Cache, models::Message};
 
@@ -901,7 +940,7 @@ mod tests {
         let mut gateway = super::GatewayClient::new(config);
         let cache = Cache::new();
         gateway.set_cache(cache.clone());
-        let authenticated = Arc::new(AtomicBool::new(false));
+        let authenticated = AtomicBool::new(false);
         let message = Message {
             id: "message".to_owned(),
             nonuce: None,
