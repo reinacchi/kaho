@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 use crate::{
@@ -124,7 +124,13 @@ pub struct Server {
     pub banner: Option<Attachment>,
 
     /// The categories value associated with this server.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ///
+    /// Stoat may omit this field or return `null` when no categories are configured.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub categories: Vec<Category>,
 
     /// The channels value associated with this server.
@@ -134,6 +140,9 @@ pub struct Server {
     pub default_permissions: Permission,
 
     /// The human-readable description attached to the `Server`.
+    ///
+    /// Stoat may omit this field or return `null` when no description is configured.
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub description: String,
 
     /// The discoverable value associated with this server.
@@ -168,6 +177,14 @@ pub struct Server {
     /// The system message channels for the server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_messages: Option<SystemMessageChannels>,
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Represents a server ban value used by the Stoat API models and endpoints.
@@ -436,5 +453,46 @@ impl Server {
         payload: impl Into<RoleRanksUpdate>,
     ) -> KahoResult {
         http.set_server_role_ranks(&self.id, payload).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Server;
+
+    fn base_server_json(optional_fields: &str) -> String {
+        format!(
+            r#"{{
+                "_id": "01SERVER",
+                "owner": "01OWNER",
+                "name": "Turnstile Test",
+                "channels": [],
+                "default_permissions": 0,
+                "roles": {{}},
+                {optional_fields}
+                "flags": null,
+                "system_messages": null
+            }}"#
+        )
+    }
+
+    #[test]
+    fn server_accepts_missing_optional_description_and_categories() {
+        let server: Server = serde_json::from_str(&base_server_json(""))
+            .expect("server without description/categories should deserialize");
+
+        assert!(server.description.is_empty());
+        assert!(server.categories.is_empty());
+    }
+
+    #[test]
+    fn server_accepts_null_optional_description_and_categories() {
+        let server: Server = serde_json::from_str(&base_server_json(
+            "\"description\": null, \"categories\": null,",
+        ))
+        .expect("server with null description/categories should deserialize");
+
+        assert!(server.description.is_empty());
+        assert!(server.categories.is_empty());
     }
 }

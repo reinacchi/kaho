@@ -5,70 +5,72 @@ use serde::{Deserialize, Serialize};
 #[repr(u64)]
 pub enum PermissionFlag {
     /// Represents the manage channel variant for this public enum.
-    ManageChannel        = 1 << 0,
+    ManageChannel = 1 << 0,
     /// Represents the manage server variant for this public enum.
-    ManageServer         = 1 << 1,
+    ManageServer = 1 << 1,
     /// Represents the manage permissions variant for this public enum.
-    ManagePermissions    = 1 << 2,
+    ManagePermissions = 1 << 2,
     /// Represents the manage role variant for this public enum.
-    ManageRole           = 1 << 3,
+    ManageRole = 1 << 3,
     /// Represents the manage customisation variant for this public enum.
-    ManageCustomisation  = 1 << 4,
+    ManageCustomisation = 1 << 4,
 
     /// Represents the kick members variant for this public enum.
-    KickMembers      = 1 << 6,
+    KickMembers = 1 << 6,
     /// Represents the ban members variant for this public enum.
-    BanMembers       = 1 << 7,
+    BanMembers = 1 << 7,
     /// Represents the timeout members variant for this public enum.
-    TimeoutMembers   = 1 << 8,
+    TimeoutMembers = 1 << 8,
     /// Represents the assign roles variant for this public enum.
-    AssignRoles      = 1 << 9,
+    AssignRoles = 1 << 9,
     /// Represents the change nickname variant for this public enum.
-    ChangeNickname   = 1 << 10,
+    ChangeNickname = 1 << 10,
     /// Represents the manage nicknames variant for this public enum.
-    ManageNicknames  = 1 << 11,
+    ManageNicknames = 1 << 11,
     /// Represents the change avatar variant for this public enum.
-    ChangeAvatar     = 1 << 12,
+    ChangeAvatar = 1 << 12,
     /// Represents the remove avatars variant for this public enum.
-    RemoveAvatars    = 1 << 13,
+    RemoveAvatars = 1 << 13,
 
     /// Represents the view channel variant for this public enum.
-    ViewChannel         = 1 << 20,
+    ViewChannel = 1 << 20,
     /// Represents the read message history variant for this public enum.
-    ReadMessageHistory  = 1 << 21,
+    ReadMessageHistory = 1 << 21,
     /// Represents the send message variant for this public enum.
-    SendMessage         = 1 << 22,
+    SendMessage = 1 << 22,
     /// Represents the manage messages variant for this public enum.
-    ManageMessages      = 1 << 23,
+    ManageMessages = 1 << 23,
     /// Represents the manage webhooks variant for this public enum.
-    ManageWebhooks      = 1 << 24,
+    ManageWebhooks = 1 << 24,
     /// Represents the invite others variant for this public enum.
-    InviteOthers        = 1 << 25,
+    InviteOthers = 1 << 25,
     /// Represents the send embeds variant for this public enum.
-    SendEmbeds          = 1 << 26,
+    SendEmbeds = 1 << 26,
     /// Represents the upload files variant for this public enum.
-    UploadFiles         = 1 << 27,
+    UploadFiles = 1 << 27,
     /// Represents the masquerade variant for this public enum.
-    Masquerade          = 1 << 28,
+    Masquerade = 1 << 28,
     /// Represents the react variant for this public enum.
-    React               = 1 << 29,
+    React = 1 << 29,
 
     /// Represents the connect variant for this public enum.
-    Connect         = 1 << 30,
+    Connect = 1 << 30,
     /// Represents the speak variant for this public enum.
-    Speak           = 1 << 31,
+    Speak = 1 << 31,
     /// Represents the video variant for this public enum.
-    Video           = 1 << 32,
+    Video = 1 << 32,
     /// Represents the mute members variant for this public enum.
-    MuteMembers     = 1 << 33,
+    MuteMembers = 1 << 33,
     /// Represents the deafen members variant for this public enum.
-    DeafenMembers   = 1 << 34,
+    DeafenMembers = 1 << 34,
     /// Represents the move members variant for this public enum.
-    MoveMembers     = 1 << 35,
+    MoveMembers = 1 << 35,
 }
 
 /// A set of permissions stored as a bitfield.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct Permission(pub u64);
 
 impl Permission {
@@ -95,7 +97,9 @@ impl Permission {
 }
 
 /// Represents user-specific permissions using a bitmask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct UserPermission(pub u64);
 
 /// Represents the supported user permission flag variants returned by or sent to the Stoat API.
@@ -103,13 +107,13 @@ pub struct UserPermission(pub u64);
 #[repr(u64)]
 pub enum UserPermissionFlag {
     /// Represents the access variant for this public enum.
-    Access       = 1 << 0,
+    Access = 1 << 0,
     /// Represents the view profile variant for this public enum.
-    ViewProfile  = 1 << 1,
+    ViewProfile = 1 << 1,
     /// Represents the send message variant for this public enum.
-    SendMessage  = 1 << 2,
+    SendMessage = 1 << 2,
     /// Represents the invite variant for this public enum.
-    Invite       = 1 << 3,
+    Invite = 1 << 3,
 }
 
 impl UserPermission {

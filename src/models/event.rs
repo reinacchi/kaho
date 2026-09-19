@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::{
@@ -157,6 +157,10 @@ pub struct ChannelTypingEvent {
     /// Channel ID where typing changed.
     pub id: Id,
     /// User ID whose typing state changed.
+    ///
+    /// Current Stoat gateways may send either the user ID directly or a small
+    /// user object. Kaho normalizes both representations to the user ID.
+    #[serde(deserialize_with = "deserialize_id_or_object")]
     pub user: Id,
 }
 
@@ -417,6 +421,28 @@ pub enum GatewayEvent {
     Unknown,
 }
 
+fn deserialize_id_or_object<'de, D>(deserializer: D) -> Result<Id, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+
+    match value {
+        Value::String(id) => Ok(id),
+        Value::Object(object) => object
+            .get("_id")
+            .or_else(|| object.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                D::Error::custom("typing user object is missing a string `_id` or `id`")
+            }),
+        other => Err(D::Error::custom(format!(
+            "expected a user ID string or object, got {other}"
+        ))),
+    }
+}
+
 fn deserialize_value_array<'de, D>(deserializer: D) -> Result<Vec<Value>, D::Error>
 where
     D: Deserializer<'de>,
@@ -428,4 +454,35 @@ where
         Some(Value::Array(values)) => values,
         Some(value) => vec![value],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GatewayEvent;
+
+    #[test]
+    fn typing_event_accepts_user_id_string() {
+        let event: GatewayEvent = serde_json::from_str(
+            r#"{"type":"ChannelStartTyping","id":"01CHANNEL","user":"01USER"}"#,
+        )
+        .expect("typing event with a user ID should deserialize");
+
+        match event {
+            GatewayEvent::ChannelStartTyping(event) => assert_eq!(event.user, "01USER"),
+            other => panic!("expected ChannelStartTyping, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn typing_event_accepts_user_object() {
+        let event: GatewayEvent = serde_json::from_str(
+            r#"{"type":"ChannelStartTyping","id":"01CHANNEL","user":{"_id":"01USER"}}"#,
+        )
+        .expect("typing event with a user object should deserialize");
+
+        match event {
+            GatewayEvent::ChannelStartTyping(event) => assert_eq!(event.user, "01USER"),
+            other => panic!("expected ChannelStartTyping, got {other:?}"),
+        }
+    }
 }
