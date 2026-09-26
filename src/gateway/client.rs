@@ -2,7 +2,10 @@ use async_channel::{bounded, Receiver, Sender, TryRecvError, TrySendError};
 use futures::{Sink, SinkExt, Stream, StreamExt};
 #[cfg(feature = "msgpack")]
 use rmp_serde::{from_slice as from_msgpack_slice, to_vec_named as to_msgpack_vec};
-use serde_json::{from_str as from_json_str, to_string as to_json_string};
+use serde_json::{
+    from_str as from_json_str, from_value as from_json_value, to_string as to_json_string,
+    Value as JsonValue,
+};
 use std::{
     cmp::min,
     future::pending,
@@ -28,7 +31,7 @@ use crate::cache::Cache;
 use crate::{
     error::{AuthError, KahoError, KahoResult},
     gateway::GatewayConfig,
-    models::{ClientEvent, GatewayEvent},
+    models::{ClientEvent, GatewayEvent, Id},
 };
 
 /// Current lifecycle state of the gateway connection loop.
@@ -114,6 +117,7 @@ struct GatewayShared {
     loop_started: AtomicBool,
     heartbeat_nonce: AtomicUsize,
     awaiting_pong: AtomicBool,
+    authenticated_user_id: Mutex<Option<Id>>,
     metrics: GatewayMetricsInner,
 }
 
@@ -194,6 +198,22 @@ impl GatewayClient {
     #[cfg(feature = "cache")]
     pub(crate) fn set_cache(&mut self, cache: Cache) {
         self.cache = Some(cache);
+    }
+
+    /// Set the authenticated bot user ID used to derive bot server lifecycle events.
+    pub fn set_authenticated_user_id(&self, user_id: impl Into<Id>) {
+        if let Ok(mut current) = self.shared.authenticated_user_id.lock() {
+            *current = Some(user_id.into());
+        }
+    }
+
+    /// Return the authenticated bot user ID when it has been configured.
+    pub fn authenticated_user_id(&self) -> Option<Id> {
+        self.shared
+            .authenticated_user_id
+            .lock()
+            .ok()
+            .and_then(|current| current.clone())
     }
 
     /// Start the gateway connection and reconnect loop.
@@ -590,16 +610,36 @@ impl GatewayClient {
                     self.set_connection_state(GatewayConnectionState::Connected);
                 }
 
+                let bot_lifecycle_event = self.bot_server_lifecycle_event(&event);
+
                 #[cfg(feature = "cache")]
                 if let Some(cache) = &self.cache {
                     cache.update_from_event(&event).await;
+                    if let Some(lifecycle_event) = &bot_lifecycle_event {
+                        cache.update_from_event(lifecycle_event).await;
+                    }
                 }
 
                 self.enqueue_result(Ok(event));
+                if let Some(lifecycle_event) = bot_lifecycle_event {
+                    self.enqueue_result(Ok(lifecycle_event));
+                }
             }
         }
 
         Ok(())
+    }
+
+    fn bot_server_lifecycle_event(&self, event: &GatewayEvent) -> Option<GatewayEvent> {
+        match event {
+            GatewayEvent::ServerCreate(server) => Some(GatewayEvent::BotServerJoin(server.clone())),
+            GatewayEvent::ServerMemberLeave(event)
+                if self.authenticated_user_id().as_deref() == Some(event.user.as_str()) =>
+            {
+                Some(GatewayEvent::BotServerLeave(event.clone()))
+            }
+            _ => None,
+        }
     }
 
     fn record_pong(&self, data: usize) {
@@ -854,14 +894,66 @@ fn serialize_client_event(event: &ClientEvent) -> KahoResult<Message> {
 }
 
 fn deserialize_gateway_event_text(text: &str) -> KahoResult<GatewayEvent> {
-    from_json_str::<GatewayEvent>(text)
-        .map_err(|error| KahoError::Other(format!("Deserialization error: {error}")))
+    let value = from_json_str::<JsonValue>(text)
+        .map_err(|error| KahoError::Other(format!("Deserialization error: {error}")))?;
+    deserialize_gateway_event_value(value)
 }
 
 #[cfg(feature = "msgpack")]
 fn deserialize_gateway_event_binary(bytes: &[u8]) -> KahoResult<GatewayEvent> {
-    from_msgpack_slice::<GatewayEvent>(bytes)
-        .map_err(|error| KahoError::Other(format!("MessagePack deserialization error: {error}")))
+    let value = from_msgpack_slice::<JsonValue>(bytes)
+        .map_err(|error| KahoError::Other(format!("MessagePack deserialization error: {error}")))?;
+    deserialize_gateway_event_value(value)
+}
+
+fn deserialize_gateway_event_value(mut value: JsonValue) -> KahoResult<GatewayEvent> {
+    normalize_gateway_event_value(&mut value)?;
+    from_json_value::<GatewayEvent>(value)
+        .map_err(|error| KahoError::Other(format!("Deserialization error: {error}")))
+}
+
+fn normalize_gateway_event_value(value: &mut JsonValue) -> KahoResult<()> {
+    let Some(object) = value.as_object_mut() else {
+        return Ok(());
+    };
+
+    let event_type = object
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned);
+
+    match event_type.as_deref() {
+        Some("Bulk") => {
+            if let Some(events) = object.get_mut("v").and_then(JsonValue::as_array_mut) {
+                for event in events {
+                    normalize_gateway_event_value(event)?;
+                }
+            }
+        }
+        Some("ServerCreate") if object.contains_key("server") => {
+            let event_id = object
+                .get("id")
+                .and_then(JsonValue::as_str)
+                .map(ToOwned::to_owned);
+            let server = object
+                .remove("server")
+                .ok_or_else(|| KahoError::Other("ServerCreate event is missing server".into()))?;
+            let mut server = server.as_object().cloned().ok_or_else(|| {
+                KahoError::Other("ServerCreate server payload is not an object".into())
+            })?;
+
+            server.insert("type".into(), JsonValue::String("ServerCreate".into()));
+            if !server.contains_key("_id") {
+                if let Some(event_id) = event_id {
+                    server.insert("_id".into(), JsonValue::String(event_id));
+                }
+            }
+            *object = server;
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 fn duration_to_micros(duration: Duration) -> u64 {
@@ -872,8 +964,91 @@ fn duration_to_micros(duration: Duration) -> u64 {
 mod tests {
     use std::time::Duration;
 
-    use super::{reconnect_delay, GatewayConnectionState};
-    use crate::{error::KahoError, gateway::GatewayConfig, models::GatewayEvent};
+    use super::{deserialize_gateway_event_text, reconnect_delay, GatewayConnectionState};
+    use crate::{
+        error::KahoError,
+        gateway::GatewayConfig,
+        models::{GatewayEvent, Server, ServerMemberLeaveEvent},
+    };
+
+    #[test]
+    fn wrapped_server_create_payload_is_normalized() {
+        let event = deserialize_gateway_event_text(
+            r#"{
+                "type": "ServerCreate",
+                "id": "server",
+                "server": {
+                    "owner": "owner",
+                    "name": "Example",
+                    "channels": [],
+                    "default_permissions": 0,
+                    "description": "",
+                    "roles": {}
+                },
+                "channels": [],
+                "emojis": [],
+                "voice_states": []
+            }"#,
+        )
+        .expect("wrapped ServerCreate should deserialize");
+
+        match event {
+            GatewayEvent::ServerCreate(server) => {
+                assert_eq!(server.id, "server");
+                assert_eq!(server.name, "Example");
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bot_server_lifecycle_events_are_emitted() {
+        use std::sync::atomic::AtomicBool;
+
+        let config = GatewayConfig::new("token").expect("valid config");
+        let gateway = super::GatewayClient::new(config);
+        gateway.set_authenticated_user_id("bot");
+        let mut events = gateway.events();
+        let authenticated = AtomicBool::new(false);
+        let server = Server {
+            id: "server".to_owned(),
+            ..Default::default()
+        };
+
+        gateway
+            .process_gateway_event(GatewayEvent::ServerCreate(server), &authenticated)
+            .await
+            .expect("process ServerCreate");
+
+        assert!(matches!(
+            events.next().await,
+            Some(Ok(GatewayEvent::ServerCreate(_)))
+        ));
+        assert!(matches!(
+            events.next().await,
+            Some(Ok(GatewayEvent::BotServerJoin(server))) if server.id == "server"
+        ));
+
+        gateway
+            .process_gateway_event(
+                GatewayEvent::ServerMemberLeave(ServerMemberLeaveEvent {
+                    id: "server".to_owned(),
+                    user: "bot".to_owned(),
+                }),
+                &authenticated,
+            )
+            .await
+            .expect("process ServerMemberLeave");
+
+        assert!(matches!(
+            events.next().await,
+            Some(Ok(GatewayEvent::ServerMemberLeave(event))) if event.user == "bot"
+        ));
+        assert!(matches!(
+            events.next().await,
+            Some(Ok(GatewayEvent::BotServerLeave(event))) if event.id == "server"
+        ));
+    }
 
     #[test]
     fn reconnect_backoff_is_capped() {

@@ -270,6 +270,14 @@ impl CacheInner {
             GatewayEvent::ServerMemberLeave(event) => {
                 self.remove_member(&event.id, &event.user);
             }
+            GatewayEvent::BotServerJoin(server) => {
+                let mut server = server.clone();
+                normalize_server_roles(&mut server);
+                self.servers.insert(server.id.clone(), server);
+            }
+            GatewayEvent::BotServerLeave(event) => {
+                self.remove_server(&event.id);
+            }
             GatewayEvent::ServerRoleUpdate(event) => {
                 let mut evict_server = false;
 
@@ -840,7 +848,7 @@ mod tests {
     use super::Cache;
     use crate::models::{
         Category, Channel, ChannelDeleteEvent, ChannelUpdateEvent, GatewayEvent, Member, MemberId,
-        Message, Server, TextChannel,
+        Message, Server, ServerMemberLeaveEvent, TextChannel,
     };
 
     fn message(id: &str) -> Message {
@@ -899,6 +907,32 @@ mod tests {
         assert!(cache.member("one", "user").await.is_none());
         assert!(cache.member("two", "user").await.is_some());
         assert_eq!(cache.counts().await.members, 1);
+    }
+
+    #[tokio::test]
+    async fn bot_server_leave_evicts_entire_server() {
+        let cache = Cache::new();
+        let server = Server {
+            id: "server".to_owned(),
+            channels: vec!["channel".to_owned()],
+            ..Default::default()
+        };
+        cache.insert_server(server).await;
+        cache
+            .insert_channel(text_channel("channel", "server"))
+            .await;
+        cache.insert_member(member("server", "bot")).await;
+
+        cache
+            .update_from_event(&GatewayEvent::BotServerLeave(ServerMemberLeaveEvent {
+                id: "server".to_owned(),
+                user: "bot".to_owned(),
+            }))
+            .await;
+
+        assert!(cache.server("server").await.is_none());
+        assert!(cache.channel("channel").await.is_none());
+        assert!(cache.member("server", "bot").await.is_none());
     }
 
     #[tokio::test]

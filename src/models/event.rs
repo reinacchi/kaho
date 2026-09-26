@@ -396,6 +396,17 @@ pub enum GatewayEvent {
     ServerMemberJoin(ServerMemberJoinEvent),
     /// A user left a server.
     ServerMemberLeave(ServerMemberLeaveEvent),
+    /// The authenticated bot joined a server.
+    ///
+    /// This is a Kaho-normalised lifecycle event derived from Stoat's
+    /// `ServerCreate` event so applications do not need to depend on the
+    /// protocol-specific join signal.
+    BotServerJoin(Server),
+    /// The authenticated bot left or was removed from a server.
+    ///
+    /// This is a Kaho-normalised lifecycle event derived from the bot's own
+    /// `ServerMemberLeave` event.
+    BotServerLeave(ServerMemberLeaveEvent),
     /// A server role was updated or created.
     ServerRoleUpdate(ServerRoleUpdateEvent),
     /// Server role ranks were reordered.

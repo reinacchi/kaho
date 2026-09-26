@@ -73,6 +73,11 @@ impl KahoClient {
 
     /// Connect the bot to the gateway.
     pub async fn connect(&self) -> KahoResult<()> {
+        if self.gateway.authenticated_user_id().is_none() {
+            let user = self.http.fetch_self().await?;
+            self.gateway.set_authenticated_user_id(user.id);
+        }
+
         self.gateway.connect().await
     }
 
